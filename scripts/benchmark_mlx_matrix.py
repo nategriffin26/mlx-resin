@@ -20,7 +20,17 @@ def main():
         choices=("resin", "mlx-lm"),
         default=("resin", "mlx-lm"),
     )
+    parser.add_argument(
+        "--high-concurrency",
+        action="store_true",
+        help="Qwen3.5 decode at batches 1/8/32/64 and batch-one 2K/4K prefill",
+    )
+    parser.add_argument("--include-batch128", action="store_true")
     args = parser.parse_args()
+    if args.high_concurrency and list(args.models) != ["qwen35"]:
+        parser.error("--high-concurrency requires --models qwen35")
+    if args.include_batch128 and not args.high_concurrency:
+        parser.error("--include-batch128 requires --high-concurrency")
     args.output_dir.mkdir(parents=True, exist_ok=False)
     summaries = []
     for model in args.models:
@@ -33,8 +43,13 @@ def main():
         ]
         if model == "qwen35":
             cases.extend(((32, 128, 128), (64, 128, 128)))
+        if args.high_concurrency:
+            batches = (1, 8, 32, 64, 128) if args.include_batch128 else (1, 8, 32, 64)
+            cases = [(batch, 128, 128) for batch in batches]
+            cases.extend(((1, 2048, 0), (1, 4096, 0)))
         for batch, prompt, decode in cases:
             records = {backend: [] for backend in args.backends}
+            expected_hashes = None
             for trial in range(1, 4):
                 for backend in args.backends:
                     command = [
@@ -66,22 +81,40 @@ def main():
                     rows = [json.loads(line) for line in path.read_text().splitlines()]
                     measured = [row for row in rows if "run" in row]
                     assert len(measured) == 1
+                    if model == "qwen35":
+                        hashes = measured[0]["token_hashes"]
+                        assert len(hashes) == batch
+                        if expected_hashes is None:
+                            expected_hashes = hashes
+                        assert hashes == expected_hashes, (
+                            f"greedy token mismatch: {model} {backend} "
+                            f"batch={batch} prompt={prompt} trial={trial}; see {path}"
+                        )
                     records[backend].append(measured[0])
                     print(json.dumps(measured[0]), flush=True)
             for backend, trials in records.items():
+                accepted = [
+                    row
+                    for row in trials
+                    if not row.get("paging_delta", {}).get("Swapouts", 0)
+                ]
                 summary = {
                     "model": model,
                     "backend": backend,
                     "batch_size": batch,
                     "prompt_tokens": prompt,
                     "decode_tokens": decode,
+                    "all_greedy_rows_validated": model == "qwen35",
+                    "accepted_trials": len(accepted),
+                    "rejected_swapping_trials": len(trials) - len(accepted),
                     **{
                         key: {
-                            "median": statistics.median(row[key] for row in trials),
-                            "min": min(row[key] for row in trials),
-                            "max": max(row[key] for row in trials),
+                            "median": statistics.median(row[key] for row in accepted),
+                            "min": min(row[key] for row in accepted),
+                            "max": max(row[key] for row in accepted),
                         }
                         for key in ("prefill_tps", "decode_tps")
+                        if accepted
                     },
                 }
                 summaries.append(summary)

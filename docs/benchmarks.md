@@ -233,6 +233,152 @@ the first and last slabs. The last slab began at byte 6,744,440,832, beyond
 the 32-bit byte-address boundary. The default boundary tests remain lazy and
 do not allocate this large arena.
 
+## Apple Silicon: Qwen3.5 high-concurrency decode
+
+The Gated DeltaNet recurrence now reads FP32 state directly from arena addresses;
+only its convolution prefix is gathered. At batch 64, the 24 linear layers
+contain 3.22 GB of recurrent state. Removing the gather saves one read and one
+write of that state per decode step. State arithmetic, checkpoint precision,
+and the single deferred scatter are unchanged.
+
+Development A/B measurements used the source at `df2e664` versus direct arena
+reads, alternating implementations in fresh processes, three trials each,
+128-token prompts and 16 measured decode tokens. All generated rows matched
+exactly between implementations. Medians and ranges, aggregate tokens/s:
+
+| Batch | Before | Direct arena reads |
+| --- | ---: | ---: |
+| 8 | 126.22 (125.27–126.23) | 145.47 (138.07–146.54) |
+| 32 | 211.00 (209.09–216.21) | 288.17 (261.01–292.81) |
+
+Neither set increased system swapouts. Batch-64 A/B trials did, during prefill,
+so their apparent throughput gains are not accepted. Raw development results
+are in `local/highbatch/ab-*.jsonl`.
+
+### Decode attribution
+
+```bash
+uv run python scripts/benchmark_qwen35_mlx.py --backend resin --batch-size 64 --decode-tokens 4 --runs 1 --profile-operations
+```
+
+Repeat with batches 8 and 32. For the baseline, run the same diagnostic driver
+with `PYTHONPATH` pointing to a `df2e664` checkout and its `models/mlx` directory.
+The driver synchronizes operation boundaries and reports **exclusive** times;
+it measures decode only. Synchronization prevents normal GPU scheduling and
+changes allocation lifetimes, so these are attribution measurements, not the
+end-to-end throughput numbers above or below.
+
+Milliseconds per decode step, before → after:
+
+| Operation | Batch 8 | Batch 32 | Batch 64 |
+| --- | ---: | ---: | ---: |
+| Arena gather | 14.6 → 6.5 | 61.1 → 8.5 | 114.9 → 13.4 |
+| GDN recurrence | 19.6 → 17.3 | 61.7 → 32.3 | 129.7 → 105.8 |
+| GDN projections and gates | 15.4 → 15.7 | 41.3 → 19.3 | 58.9 → 62.9 |
+| State packing and write queue | 9.3 → 12.4 | 29.6 → 33.3 | 36.1 → 65.4 |
+| Single commit: concatenation and scatter | 11.0 → 9.3 | 40.7 → 38.3 | 84.0 → 73.8 |
+| Attention, excluding KV write queue | 5.7 → 5.9 | 19.2 → 8.8 | 25.8 → 28.3 |
+| MLP | 26.7 → 26.7 | 67.6 → 40.3 | 204.7 → 216.1 |
+| Vocabulary projection | 4.9 → 5.3 | 6.1 → 9.2 | 12.1 → 9.3 |
+| Sampling | 0.34 → 0.33 | 0.69 → 0.41 | 0.53 → 0.52 |
+| KV packing and write queue | 3.7 → 3.9 | 7.9 → 5.6 | 7.9 → 9.5 |
+| Arena initialization | 1.3 → 1.2 | 2.3 → 2.9 | 6.1 → 4.5 |
+| Remaining runner work | 3.6 → 3.8 | 16.3 → 5.1 | 41.8 → 6.8 |
+
+The remainder outside the runner is below 1 ms per step. Gathers, state traffic,
+and dense MLPs dominate, not sampling or Engine scheduling. Batch-64 synchronized
+decode increased no swapouts on either side; the baseline prefill did. Its
+decode peak allocation was 19.42 GB before and 19.43 GB after: eliminating this
+gather improves bandwidth, not the capacity-determining peak. Allocation totals
+exclude unused MLX allocator buffers, which are reported separately.
+
+The profile initially retained arrays through a recursive Python collector,
+inflating batch-64 peak allocation to 38.1 GB. That observer was corrected;
+those runs and a batch-128 warmup that failed to complete within 600 seconds are
+excluded. `local/highbatch/profile-{baseline,direct}-b*.jsonl` holds the corrected
+profiles.
+
+### Allocation boundary and numerical proof
+
+The first full 128-token decode matrix exposed a second cause: unused
+decode-sized allocator buffers remained in MLX's free cache when the next
+prefill requested much larger buffers. Clearing only after prefill was too late.
+A batch-64 intervention released unused buffers before prefill as well:
+prefill fell from 8.05 to 4.11 seconds, system swapouts stopped increasing, and
+all 64 greedy output rows retained the same 129-token digest. The runner now
+releases unused buffers at both prefill boundaries, but never between consecutive
+decode steps. Live weights and Engine-owned pages are not released.
+
+Three interleaved batch-64 comparisons against the pre-entry-release runner
+(`b3a1862`) confirmed the cause. Prefill medians were **7.97 s** (7.89–8.46)
+before and **4.56 s** (4.21–5.28) after. Each before trial increased swapouts
+by 73,812–134,956 pages; each after trial increased them by zero. Greedy digests
+matched in all six trials. The swapped trials are evidence of the allocation
+problem, not accepted steady-state GPU throughput.
+
+The original allocator test required exactly one release. Its contract was
+updated deliberately: Qwen must release before and after prefill, and three
+consecutive decode steps must contain no release. Removing the entry release
+in memory fails that check. A separate recurrence mutation that uses row zero's
+state address for every request fails 20 of 40 expected outputs. The new
+recurrence test also covers permuted pages, NaN padding, grouped heads, and key
+widths 31, 32 and 33.
+
+After both changes, the default gate passed **184 tests in 20.74 s** with three
+checkpoint tests deselected. The explicit checkpoint gate passed **3 tests in
+129.80 s** with 101 tests deselected. `uv run ruff check .` passed. The existing
+FP32/BF16 tolerance policies and exact greedy assertions were unchanged.
+
+```bash
+uv run pytest tests/test_engine.py tests/test_scheduler.py models/torch models/mlx -q
+uv run pytest models/mlx/tests -m checkpoint -q
+uv run ruff check .
+uv run python scripts/benchmark_mlx_matrix.py --models qwen35 --high-concurrency --output-dir local/highbatch-final-v2
+```
+
+The matrix alternates Resin and mlx-lm in fresh processes, with one warmup and
+one measured trial per process, three times per workload. It checks SHA-256
+digests of every row's complete greedy output across backends and trials.
+Rows with new system swapouts are excluded from throughput summaries; pageouts,
+swapins, and separate decode-phase counters remain in each raw record.
+`--include-batch128` adds the optional capacity row. The optimized batch-128
+128-token-prompt capacity probe also failed to finish within 180 seconds;
+no batch-128 throughput is claimed.
+
+### Final matrix and stopping point
+
+Three-run medians (minimum–maximum), tokens/s, on the same M5 Pro and pinned
+BF16 checkpoint. Decode uses 128 prompt tokens and 128 measured decode tokens
+after the first output; throughput is aggregate across the batch. Prefill rows
+include the first output token. All 36 measured trials increased system
+swapouts by zero, and every generated row matched mlx-lm exactly.
+
+| Workload | Resin | mlx-lm BatchGenerator |
+| --- | ---: | ---: |
+| Decode, batch 1 | 24.52 (23.94–24.86) | 29.29 (29.22–29.34) |
+| Decode, batch 8 | 127.22 (103.35–141.85) | 185.23 (183.92–185.30) |
+| Decode, batch 32 | 291.97 (283.99–297.00) | 592.91 (583.11–602.05) |
+| Decode, batch 64 | 359.67 (343.10–362.65) | 901.48 (877.03–904.82) |
+| Prefill, 2048 tokens, batch 1 | 2045.00 (1981.53–2075.99) | 2456.68 (2448.30–2514.96) |
+| Prefill, 4096 tokens, batch 1 | 1988.63 (1981.77–1991.90) | 2589.02 (2458.59–2626.32) |
+
+Raw commands, counters, row digests, and summaries are retained in
+`local/highbatch-final-v2/`. The matrix took 17 min 32 s, including three
+additional pre-entry-release A/B processes at batch 64. System-wide swapins
+and occasional pageouts still occurred; zero swapouts is not a claim that the
+whole Mac performed no paging.
+
+Throughput now rises from batch 8 through batch 64 instead of collapsing.
+The direct-read change's controlled improvement is the 15%/37% at batches
+8/32 above, not a comparison against the earlier pressure-contaminated 58 tok/s
+batch-64 result. The remaining gap is substantial: at batch 64 Resin reaches
+40% of mlx-lm's throughput. State packing, concatenation/scatter, and dense
+MLP execution remain the largest measured costs. Removing the next full-state
+copy requires a write path that preserves MLX buffer ownership and Engine
+leases; mutating an input buffer or relaxing the recurrence precision is not
+an acceptable shortcut. This iteration stops at the two measured changes,
+with batch-128 capacity unproven.
+
 ## Run a sweep
 
 Download pinned weights on a Modal CPU worker, then sweep prefill and decode:

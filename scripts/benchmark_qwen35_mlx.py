@@ -273,6 +273,8 @@ def main():
     if args.profile_operations:
         if args.backend != "resin":
             parser.error("--profile-operations requires --backend resin")
+        if args.decode_tokens <= 0:
+            parser.error("--profile-operations requires positive --decode-tokens")
         profile = OperationProfile()
         profile.install()
     if args.backend == "resin":
@@ -320,7 +322,8 @@ def main():
                 else 2048,
                 "measured_decode_tokens": args.decode_tokens,
                 "overlap": False,
-                "method": "one warmup; three fresh-cache trials; stop disabled; prefill includes first token; decode excludes first token",
+                "method": f"one warmup; {args.runs} fresh-cache trials; stop disabled; "
+                "prefill includes first token; decode excludes first token",
             }
         ),
         flush=True,
