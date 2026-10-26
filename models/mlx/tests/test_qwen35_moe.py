@@ -381,3 +381,15 @@ def test_shared_expert_steering_is_gated_and_isolated_by_request(checkpoint):
         actual = [request.take_result() for request in requests]
     assert_oracle(runner, [expected_plain, expected_steered], actual)
     assert not np.allclose(expected_plain[1], expected_steered[1])
+
+
+def test_prefill_token_budget_bounds_memory_without_changing_checkpoints(checkpoint):
+    runner = RecordingRunner(checkpoint[0], max_batch_tokens=32)
+    inputs = [prompt(17), prompt(129, 1)]
+    references = [reference_generate(checkpoint[1], tokens) for tokens in inputs]
+    with Engine(runner) as engine:
+        actual, _ = generate(engine, inputs)
+    assert_oracle(runner, references, actual)
+    assert max(len(plan.token_ids) for plan in runner.plans) <= 32
+    assert runner.geometry.prefill_chunk_size == 128
+    assert runner.runner_config.prefill_chunk_size == 128

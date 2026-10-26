@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from tokenizers import Tokenizer
 
-from resin import Engine, SamplingParams
+from resin import Engine, SamplingParams, SchedulerConfig
 from resin.backend.loading import resolve_model
 from resin.recipe import Message, Role, Text, get_native_recipe
 
@@ -33,7 +33,7 @@ pytestmark = pytest.mark.checkpoint
 
 def reference_logits(model, tokens, count=4, continuation=None):
     cache = make_prompt_cache(model)
-    inputs, output, rows = mx.array([tokens]), [], []
+    inputs, output, rows = mx.array(tokens)[None], [], []
     for step in range(count):
         logits = model(inputs, cache=cache)[:, -1]
         mx.eval(logits)
@@ -128,3 +128,41 @@ def test_pinned_quantized_checkpoint_matches_mlx_lm_greedy_and_precision_noise()
         # errors; the floor is the existing FP32 tiny-model oracle's tolerance.
         assert error_rms <= max(3e-4, 2 * noise_rms)
         assert error_max <= max(3e-4, 2 * noise_max)
+
+
+def test_real_checkpoint_prefix_hit_matches_fresh_chunked_prefill():
+    runner = Qwen35MoeMlxRunner(cache_slab_capacity=8)
+    tokenizer = Tokenizer.from_pretrained(DEFAULT_MODEL, revision=DEFAULT_REVISION)
+    text = "Alice lives in Paris. Bob lives in Rome. The train leaves at noon. "
+    tokens = tokenizer.encode(text * 400).ids[:4097]
+    assert len(tokens) == 4097
+    observed = []
+    sampler = runner._sampler
+
+    def record(logits, plan):
+        if plan.sampling_mask.any():
+            observed.extend(np.array(logits.astype(mx.float32))[plan.sampling_mask])
+        return sampler(logits, plan)
+
+    runner._sampler = record
+    with Engine(
+        runner,
+        prefix_cache=True,
+        scheduler_config=SchedulerConfig(prefill_chunk_size=512),
+    ) as engine:
+        requests, outputs, logits = [], [], []
+        for _ in range(2):
+            observed.clear()
+            request = engine.submit(
+                tokens,
+                sampling_params=SamplingParams(temperature=0, max_output_tokens=4),
+            )
+            while engine.has_work():
+                engine.step()
+            requests.append(request)
+            outputs.append(request.take_result())
+            logits.append(np.stack(observed))
+        assert requests[0].cached_tokens == 0
+        assert requests[1].cached_tokens == 4096
+    assert outputs[0] == outputs[1]
+    np.testing.assert_allclose(logits[0], logits[1], atol=3e-4, rtol=3e-4)

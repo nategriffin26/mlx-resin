@@ -31,6 +31,10 @@ come from the dense Qwen3.5 implementation, not a second copy. The Engine owns
 checkpoint interval equals the runner's prefill chunk size (4096 by default).
 Prefix reuse restores both groups at that interval; there is no runner-private
 request cache.
+The default `max_batch_tokens=4096` bounds total tokens per step independently of
+that checkpoint interval. Without it, eight 4096-token rows reached 43.31 GB peak
+allocation and swapped heavily; a 32-row warmup was killed. Bounding the step
+retains 4096-token prefix reuse instead of changing checkpoint granularity.
 
 `runner.calibrate` and `runner.steer` use the dense family's dose and prefix
 isolation contract. Neuron indices address the **shared expert**; routed experts
@@ -66,19 +70,83 @@ forced token sequence: checkpoint BF16 arithmetic versus FP32 floating parameter
 and activations, leaving packed weights unchanged. RMS and maximum logit error
 must be no larger than twice that independently measured noise, with a `3e-4`
 floor. Greedy equality is a separate requirement, never relaxed by this bound.
+The real model also checks a 4096-token prefix hit against fresh, 512-token-chunk
+prefill on a 4097-token prompt.
+
+On the pinned checkpoint, all 12 greedy tokens matched. Measured logit errors:
+
+| Prompt | mlx-lm BF16/FP32 RMS / max | mlx-resin versus mlx-lm RMS / max |
+| --- | ---: | ---: |
+| Capital of France | 0.13994 / 1.28884 | 0.12018 / 0.75000 |
+| 17 × 23 | 0.21445 / 5.89944 | 0.11452 / 0.84375 |
+| Python square function | 0.18074 / 1.42432 | 0.14872 / 1.23438 |
+
+The 4096-token prefix test also passed. The chat command returned
+`The capital of France is **Paris**.` with a 32-token output limit.
 
 ## Benchmark commands
 
 ```sh
-MLX_ENABLE_TF32=0 uv run python scripts/benchmark_qwen36_mlx.py --matrix --runs 3 --decode-tokens 16 --output local/qwen36-benchmarks.jsonl
-MLX_ENABLE_TF32=0 uv run python scripts/benchmark_qwen36_mlx.py --backend resin --batch-size 32 --prompt-tokens 4096 --decode-tokens 16 --runs 3
+MLX_ENABLE_TF32=0 uv run python scripts/benchmark_qwen36_mlx.py --matrix --runs 3 --decode-tokens 128 --output local/qwen36-benchmarks-final.jsonl
+MLX_ENABLE_TF32=0 uv run python scripts/benchmark_qwen36_mlx.py --backend resin --batch-size 32 --prompt-tokens 128 --decode-tokens 128 --runs 3
 ```
 
-The matrix alternates fresh processes in A/B, B/A, A/B order. Each process loads
-one backend, warms once and measures a fresh-cache trial. Loading is excluded;
-preprocessing through the first generated token is included in prefill. Decode
-excludes that first token. Prefix hits and EOS stopping are disabled, and the
+The speed matrix uses 128-token prompts and 128 decoded tokens at batches 1, 8
+and 32, plus single-request 2048/4096-token prefills. It alternates fresh processes
+in A/B, B/A, A/B order. Each process loads one backend, warms once and measures a
+fresh-cache trial. Loading is excluded; prefill includes the first generated token.
+Decode excludes that first token. Prefix hits and EOS stopping are disabled, and the
 complete cohort must prefill before decode. Reported throughput is aggregate
 tokens per second; `peak_bytes` is MLX's peak active allocation, not process RSS
 or the machine's total memory. Raw JSONL records checkpoint revision, device,
 cache bytes, generated token counts and exact subprocess commands.
+Each measured trial records `vm_stat` pageout, swap-in and swap-out counters before
+and after execution. New swap-outs mark the trial `accepted: false`; rejected
+trials do not contribute to reported throughput. Existing swap usage and swap-ins
+are reported but do not, by themselves, reject a cell.
+
+## M5 Pro measurements
+
+MLX 0.32.4, mlx-lm 0.32.2, 48 GB unified memory, pinned four-bit weights with BF16
+activations. Values are aggregate tokens/second, median (range). Three
+interleaved trials were attempted per cell; accepted counts below exclude trials
+with new swap-outs. The matrix uses the runner's default 4096-token step budget
+and checkpoint interval.
+
+| Measurement | mlx-resin tok/s | mlx-lm tok/s | Accepted trials, Resin / mlx-lm |
+| --- | ---: | ---: | ---: |
+| Decode b1, 128-token prompt | 46.84 (46.54–47.53) | 74.93 (57.61–84.73) | 3 / 3 |
+| Decode b8, 128-token prompt | 165.49 (162.14–172.64) | 313.69 (296.03–317.06) | 3 / 3 |
+| Decode b32, 128-token prompt | Rejected: swapping | 401.05 (393.74–408.37) | 0 / 2 |
+| Prefill b1, 2048 tokens | 1842.49 (1812.52–1854.43) | 2054.78 (1976.76–2334.36) | 3 / 3 |
+| Prefill b1, 4096 tokens | 1790.21 (1788.06–1792.35) | 2374.13 (1981.00–2375.68) | 2 / 3 |
+
+Twenty-five of 30 trials had zero new swap-outs. All three Resin b32 trials,
+one mlx-lm b32 trial and one Resin 4k-prefill trial were rejected. A clean b32
+throughput comparison is therefore **not verified** under this Mac's concurrent
+workload; the rejected timings are not published as model throughput.
+
+Raw rows and exact subprocess commands are in `local/qwen36-benchmarks-final.jsonl`.
+The earlier unbounded 4k-context matrix is in `local/qwen36-benchmarks.jsonl`;
+its pressure-affected rows are not used above.
+
+## Memory capacity
+
+With the default 4096-token step budget, 32 requests with 4096-token contexts
+completed prefill and one decode step (two output tokens per request). Peak active
+MLX allocation was **30.14 GB during prefill and 32.20 GB during decode**, including
+weights and the 7.38 GB arena; resident allocation was 26.89 GB. GB is decimal.
+
+This is a capacity result, **not swap-free operation or a speed result**. The Mac's
+other live workloads occupied roughly 15–18 GB, and the capacity run swapped.
+The unbounded warmup failure and the bounded completion are retained separately
+from the speed matrix; neither becomes an accepted timing by changing the threshold.
+
+```sh
+MLX_ENABLE_TF32=0 uv run python scripts/benchmark_qwen36_mlx.py --backend resin --batch-size 32 --prompt-tokens 4096 --capacity-only
+```
+
+`--capacity-only` skips warmup and runs one cold-cache prefill plus one decode
+step. It records peak allocation and paging, not a warmed throughput claim.
+A later b32 invocation exceeded 360 seconds under pressure. The completed run
+demonstrates allocation capacity, not reliable b32 latency on this loaded Mac.

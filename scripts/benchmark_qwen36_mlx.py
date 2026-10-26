@@ -23,22 +23,38 @@ from resin_models_mlx.qwen3_5_moe import (
 from scripts.benchmark_qwen35_mlx import mlx_lm_trial, resin_trial
 
 
+def paging_counters():
+    output = subprocess.check_output(["vm_stat"], text=True)
+    return {
+        key: int(value.strip().rstrip("."))
+        for line in output.splitlines()
+        if ":" in line
+        for key, value in [line.split(":", 1)]
+        if key in ("Pageouts", "Swapins", "Swapouts")
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", choices=("resin", "mlx-lm"))
     parser.add_argument("--batch-size", type=int, default=1)
-    parser.add_argument("--prompt-tokens", type=int, default=4096)
-    parser.add_argument("--decode-tokens", type=int, default=16)
+    parser.add_argument("--prompt-tokens", type=int, default=128)
+    parser.add_argument("--decode-tokens", type=int, default=128)
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--matrix", action="store_true")
+    parser.add_argument("--capacity-only", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    if args.capacity_only:
+        if args.matrix:
+            parser.error("--capacity-only requires a single --backend")
+        args.runs, args.decode_tokens = 1, 1
     if args.matrix:
         if args.output is None:
             parser.error("--matrix requires --output for the raw JSONL measurements")
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with args.output.open("w") as stream:
-            for batch, length in ((1, 2048), (1, 4096), (8, 4096), (32, 4096)):
+            for batch, length in ((1, 128), (8, 128), (32, 128), (1, 2048), (1, 4096)):
                 for trial in range(args.runs):
                     order = (
                         ("resin", "mlx-lm") if trial % 2 == 0 else ("mlx-lm", "resin")
@@ -115,13 +131,28 @@ def main():
         "prompt_tokens": args.prompt_tokens,
         "decode_tokens": args.decode_tokens,
         "cache_bytes": cache_bytes,
+        "max_batch_tokens": runner.runner_config.max_batch_tokens
+        if args.backend == "resin"
+        else None,
+        "prefill_chunk_size": 4096 if args.backend == "resin" else 2048,
         "device": mx.device_info(),
         "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+        "capacity_only": args.capacity_only,
     }
-    execute()
+    if args.capacity_only:
+        metadata["method"] = (
+            "one cold-cache capacity trial; one decode step after prefill; not a speed benchmark"
+        )
+    else:
+        execute()
     for trial in range(args.runs):
         mx.reset_peak_memory()
-        prefill, decode, tokens = execute()
+        paging_before = paging_counters()
+        prefill, decode, tokens, prefill_peak, decode_memory = execute()
+        paging_after = paging_counters()
+        paging_delta = {
+            key: paging_after[key] - value for key, value in paging_before.items()
+        }
         print(
             json.dumps(
                 {
@@ -131,10 +162,17 @@ def main():
                     "decode_seconds": decode,
                     "prefill_tps": args.batch_size * args.prompt_tokens / prefill,
                     "decode_tps": args.batch_size * args.decode_tokens / decode,
-                    "peak_bytes": mx.get_peak_memory(),
+                    "peak_bytes": max(prefill_peak, mx.get_peak_memory()),
+                    "prefill_peak_bytes": prefill_peak,
+                    "decode_peak_bytes": mx.get_peak_memory(),
+                    "decode_memory_before": decode_memory,
                     "active_bytes": mx.get_active_memory(),
                     "generated_tokens": sum(map(len, tokens)),
                     "first_tokens": tokens[0][:8],
+                    "paging_before": paging_before,
+                    "paging_after": paging_after,
+                    "paging_delta": paging_delta,
+                    "accepted": paging_delta["Swapouts"] == 0,
                 }
             ),
             flush=True,

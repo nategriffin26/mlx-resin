@@ -119,9 +119,12 @@ class Qwen35MoeMlxRunner(Qwen35MlxRunner):
         cache_slab_capacity=32,
         block_tokens=128,
         prefill_chunk_size=4096,
+        max_batch_tokens=4096,
     ):
         if dtype not in (mx.float32, mx.float16, mx.bfloat16):
             raise ValueError("Qwen3.5 MoE dtype must be float32, float16, or bfloat16")
+        if max_batch_tokens <= 0:
+            raise ValueError("max_batch_tokens must be positive")
         if (
             block_tokens <= 0
             or prefill_chunk_size <= 0
@@ -150,6 +153,7 @@ class Qwen35MoeMlxRunner(Qwen35MlxRunner):
             cache_layout=layout,
             continuation_prefill=True,
             prefill_chunk_size=prefill_chunk_size,
+            max_batch_tokens=max_batch_tokens,
         )
         self.arena = SlabArena(
             layout, self.geometry.shapes, group_dtypes=(dtype, mx.float32)
