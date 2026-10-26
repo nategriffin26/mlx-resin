@@ -6,6 +6,78 @@ use the same model registry, runner construction, measurements, and JSONL schema
 `scripts/plot_bench.py` renders charts, and `scripts/merge_bench_traces.py` combines
 rank traces for Perfetto. `deploy/modal_bench.py` is a thin remote adapter.
 
+## Apple Silicon: LFM2
+
+Measured on an Apple M5 Pro with 48 GB unified memory, MLX 0.32.4 and mlx-lm
+0.32.2, on 2026-10-25. Both backends load the unquantized
+`LiquidAI/LFM2.5-230M` checkpoint at
+`13a53837c4906b4f7405932532ba85d182bb013b`, cast to bfloat16.
+
+| Measurement (tok/s) | Backend | Run 1 | Run 2 | Run 3 | Median |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Decode, batch 1 | Resin Engine | 246.25 | 246.32 | 249.81 | **246.32** |
+| Decode, batch 1 | mlx-lm | 411.60 | 410.96 | 407.23 | **410.96** |
+| Decode, batch 8 (aggregate) | Resin Engine | 1366.37 | 1366.50 | 1304.42 | **1366.37** |
+| Decode, batch 8 (aggregate) | mlx-lm | 2688.86 | 2706.22 | 2723.66 | **2706.22** |
+| Prefill, 2048 tokens | Resin Engine | 16645.59 | 16224.23 | 15840.08 | **16224.23** |
+| Prefill, 2048 tokens | mlx-lm | 42998.94 | 42157.09 | 42052.13 | **42157.09** |
+
+The benchmark uses the same tokenized prose on both sides, one untimed warmup,
+fresh cache state per trial, greedy sampling, and no early stopping. Decode
+starts after the first output token and measures 128 further tokens per request
+from a 128-token prompt. Prefill includes all prompt processing and the first
+output token. Every trial checks the number of returned tokens; loading and
+request submission are untimed. The mlx-lm path uses its `BatchGenerator` API,
+including for batch one. Prefix caching is disabled. These are throughput
+measurements, not generation-quality scores.
+
+```bash
+uv run python scripts/benchmark_lfm2_mlx.py --backend resin --batch-size 1 --prompt-tokens 128 --decode-tokens 128 --runs 3 --dtype bfloat16 --profile
+uv run python scripts/benchmark_lfm2_mlx.py --backend mlx-lm --batch-size 1 --prompt-tokens 128 --decode-tokens 128 --runs 3 --dtype bfloat16
+uv run python scripts/benchmark_lfm2_mlx.py --backend resin --batch-size 8 --prompt-tokens 128 --decode-tokens 128 --runs 3 --dtype bfloat16
+uv run python scripts/benchmark_lfm2_mlx.py --backend mlx-lm --batch-size 8 --prompt-tokens 128 --decode-tokens 128 --runs 3 --dtype bfloat16
+uv run python scripts/benchmark_lfm2_mlx.py --backend resin --batch-size 1 --prompt-tokens 2048 --decode-tokens 0 --runs 3 --dtype bfloat16
+uv run python scripts/benchmark_lfm2_mlx.py --backend mlx-lm --batch-size 1 --prompt-tokens 2048 --decode-tokens 0 --runs 3 --dtype bfloat16
+```
+
+The largest observed cost is synchronous model/cache-graph execution, not the
+Rust scheduler. A separate batch-one cProfile trial took 0.571 s: 0.393 s was
+attributed to native work inside `forward`, 0.065 s to arena commit, and 0.003 s
+to `Engine.step` itself. This host profile does not resolve individual Metal
+kernels. The initial backend deliberately uses gathered attention and 128-token
+checkpoint-aligned prefill chunks; mlx-lm uses its default 2048-token prefill
+step. No custom Metal kernels or throughput tuning are included here.
+
+### Arena write experiment
+
+`uv run python scripts/benchmark_mlx_arena.py --repeats 300` times 512-float
+slice writes, synchronized after each write, with one warmup and three trials.
+For a 128 MiB allocation, median latency was **291.7 µs** without a retained
+view (range 225.8–469.6), versus **1379.5 µs** with a live old view
+(1364.3–1398.7). The 16 MiB results overlapped: 305.7 versus 309.3 µs.
+Retaining a view is the copy-on-write case; a second Python name for the same
+array object is not.
+
+The arena therefore defers writes until reads and new values are evaluated,
+then commits one scatter. This keeps contiguous storage suitable for a future
+paged-attention kernel without copying an entire arena once per model layer.
+The experiment measures MLX write primitives, not a second cache implementation.
+
+### Numerical checks
+
+`uv run pytest models/mlx/tests` runs the real native Engine and pinned
+checkpoint. Greedy tokens must match the CPU Torch oracle exactly; sampled
+logits and logprobs use float32 with `atol=rtol=3e-4`. Tests disable M5's default
+TF32 GEMM (`MLX_ENABLE_TF32=0`) before importing MLX. With TF32 enabled, a
+layer-zero projection differed from Torch by 0.00155 despite identical weights;
+disabling it reduced that difference to 0.0000012.
+
+The Torch reference's RMSNorm previously modified float32 residual inputs in
+place because `.float()` returned the original tensor. Its out-of-place fix has
+a regression covering unchanged float32 residuals and identical bfloat16
+arithmetic. Tests skip off Darwin or when MLX is unavailable.
+
+
 ## Run a sweep
 
 Download pinned weights on a Modal CPU worker, then sweep prefill and decode:

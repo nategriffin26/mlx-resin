@@ -16,6 +16,9 @@ configuration belongs in `deploy/models.py`.
 | [stress_http.py](../scripts/stress_http.py) | Standalone bounded HTTP load/protocol/disconnect/recovery checks, plus the reusable client/parser/reporting machinery used by `check_server.py`. |
 | [bench_startup.py](../scripts/bench_startup.py) | Measure cold `resin` and Torch backend imports in separate fresh processes. This measures Python startup, not model loading or inference. |
 | [lfm2_chat.py](../scripts/lfm2_chat.py) | Minimal CPU example: render a fixed LFM2 conversation with the native recipe and stream one Engine completion. |
+| [lfm2_mlx_chat.py](../scripts/lfm2_mlx_chat.py) | Apple Silicon example: the same native LFM2 recipe and prompt, streamed through an Engine-managed MLX runner. |
+| [benchmark_lfm2_mlx.py](../scripts/benchmark_lfm2_mlx.py) | Compare synchronized Engine and mlx-lm batch-API throughput with the pinned checkpoint and identical dtype/input tokens. |
+| [benchmark_mlx_arena.py](../scripts/benchmark_mlx_arena.py) | Measure MLX slice writes with donation versus a retained old view that forces copying. |
 | [lfm2_serve.py](../scripts/lfm2_serve.py) | Minimal CPU example: serve the Torch LFM2 runner through the native HTTP server on localhost. |
 | [rust_build_and_types.py](../scripts/rust_build_and_types.py) | Development build: sync type-library sources, build the Rust extension with generated stubs, normalize stubs and format them. |
 | [sync_type_libraries.py](../scripts/sync_type_libraries.py) | Make locked Linux dependency sources available to `ty` on the development host without importing those libraries or running their installation hooks. |
