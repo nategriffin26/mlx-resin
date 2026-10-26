@@ -1,10 +1,15 @@
-"""Test-only stubs for optional CUDA packages unavailable on macOS."""
+"""Deterministic MLX precision and optional CUDA imports for the test session."""
 
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from types import ModuleType
+
+# MLX reads this before module collection; setting it inside one test is too late.
+if sys.platform == "darwin":
+    os.environ["MLX_ENABLE_TF32"] = "0"
 
 if importlib.util.find_spec("quack") is None:
     quack = ModuleType("quack")

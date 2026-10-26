@@ -18,6 +18,9 @@ configuration belongs in `deploy/models.py`.
 | [lfm2_chat.py](../scripts/lfm2_chat.py) | Minimal CPU example: render a fixed LFM2 conversation with the native recipe and stream one Engine completion. |
 | [lfm2_mlx_chat.py](../scripts/lfm2_mlx_chat.py) | Apple Silicon example: the same native LFM2 recipe and prompt, streamed through an Engine-managed MLX runner. |
 | [benchmark_lfm2_mlx.py](../scripts/benchmark_lfm2_mlx.py) | Compare synchronized Engine and mlx-lm batch-API throughput with the pinned checkpoint and identical dtype/input tokens. |
+| [qwen35_mlx_chat.py](../scripts/qwen35_mlx_chat.py) | [Dense Qwen3.5 MLX chat](../models/mlx/resin_models_mlx/qwen3_5/README.md), with a calibrated baseline-versus-steered demo through the existing [media contract](steering.md). |
+| [benchmark_qwen35_mlx.py](../scripts/benchmark_qwen35_mlx.py) | Compare pinned Qwen3.5-4B BF16 Engine and mlx-lm throughput with fresh caches, synchronized phase timings, and three-run medians. |
+| [benchmark_qwen35_precision.py](../scripts/benchmark_qwen35_precision.py) | Measure HF's own BF16 rounding noise beside native and exact MLX recurrence on the same pinned inputs and saved HF FP32 logits. |
 | [benchmark_mlx_arena.py](../scripts/benchmark_mlx_arena.py) | Measure MLX slice writes with donation versus a retained old view that forces copying. |
 | [lfm2_serve.py](../scripts/lfm2_serve.py) | Minimal CPU example: serve the Torch LFM2 runner through the native HTTP server on localhost. |
 | [rust_build_and_types.py](../scripts/rust_build_and_types.py) | Development build: sync type-library sources, build the Rust extension with generated stubs, normalize stubs and format them. |
