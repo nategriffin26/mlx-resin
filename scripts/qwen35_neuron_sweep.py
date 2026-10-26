@@ -54,13 +54,25 @@ def chat_ids(recipe, text):
 
 def corpus_windows(recipe, tokenizer, seq_len, batch, seed):
     """FineWeb-Edu documents alternating with UltraChat conversations, EOS-separated."""
+    import pyarrow.dataset as ds
     from datasets import load_dataset
 
+    # Arrow's default pre-buffered Parquet reads leave I/O tasks pending when the
+    # stream is abandoned mid-shard; Arrow then waits for them forever at process
+    # exit. Closing this generator does not cancel them.
+    scan = ds.ParquetFragmentScanOptions(use_buffered_stream=True, pre_buffer=False)
     web = load_dataset(
-        "HuggingFaceFW/fineweb-edu", "sample-10BT", split="train", streaming=True
+        "HuggingFaceFW/fineweb-edu",
+        "sample-10BT",
+        split="train",
+        streaming=True,
+        fragment_scan_options=scan,
     ).shuffle(seed=seed)
     chat = load_dataset(
-        "HuggingFaceH4/ultrachat_200k", split="train_sft", streaming=True
+        "HuggingFaceH4/ultrachat_200k",
+        split="train_sft",
+        streaming=True,
+        fragment_scan_options=scan,
     ).shuffle(seed=seed)
     roles = {"user": Role.USER, "assistant": Role.ASSISTANT, "system": Role.SYSTEM}
     options = RenderOptions(add_generation_prompt=False)
