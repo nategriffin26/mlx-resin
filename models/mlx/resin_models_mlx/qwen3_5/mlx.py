@@ -82,11 +82,16 @@ class Qwen35MlxRunner(ManagedRunner):
         dtype=mx.bfloat16,
         cache_slab_capacity=32,
         block_tokens=128,
+        prefill_chunk_size=4096,
     ):
         if dtype not in (mx.float32, mx.float16, mx.bfloat16):
             raise ValueError("Qwen3.5 dtype must be float32, float16, or bfloat16")
         if block_tokens <= 0:
             raise ValueError("block_tokens must be positive")
+        if prefill_chunk_size <= 0 or prefill_chunk_size % block_tokens:
+            raise ValueError(
+                "prefill_chunk_size must be a positive multiple of block_tokens"
+            )
         self.model_path = resolve_model(model, revision, _download_model)
         self._model, self.raw_config, self.config = load_model(
             self.model_path, dtype=dtype
@@ -95,13 +100,16 @@ class Qwen35MlxRunner(ManagedRunner):
         self.eos_token_id = self.config.eos_token_id
         self.vocab_size = self.config.vocab_size
         self.geometry = CacheGeometry(
-            self.config, dtype=dtype, block_tokens=block_tokens
+            self.config,
+            dtype=dtype,
+            block_tokens=block_tokens,
+            prefill_chunk_size=prefill_chunk_size,
         )
         layout = self.geometry.layout(cache_slab_capacity)
         self.runner_config = RunnerConfig(
             cache_layout=layout,
             continuation_prefill=True,
-            prefill_chunk_size=block_tokens,
+            prefill_chunk_size=prefill_chunk_size,
         )
         self.arena = SlabArena(
             layout, self.geometry.shapes, group_dtypes=(dtype, mx.float32)
@@ -261,7 +269,9 @@ class Qwen35MlxRunner(ManagedRunner):
             logits_rows, prompt_rows = [], []
             batches = (
                 [list(range(cache_plan.rows))]
-                if np.all(cache_plan.batch.query_lengths == 1)
+                if np.all(
+                    cache_plan.batch.query_lengths == cache_plan.batch.query_lengths[0]
+                )
                 else [[row] for row in range(cache_plan.rows)]
             )
             for rows in batches:
@@ -270,8 +280,8 @@ class Qwen35MlxRunner(ManagedRunner):
                 )
                 if len(rows) > 1:
                     tokens, positions = (
-                        mx.array(plan.token_ids[:, None]),
-                        mx.array(plan.positions[:, None]),
+                        mx.array(plan.token_ids.reshape(len(rows), -1)),
+                        mx.array(plan.positions.reshape(len(rows), -1)),
                     )
                     token_start = 0
                 else:

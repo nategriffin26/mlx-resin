@@ -69,21 +69,28 @@ class Lfm2MlxRunner(ManagedRunner):
         dtype=mx.bfloat16,
         cache_slab_capacity=64,
         block_tokens=128,
+        prefill_chunk_size=2048,
     ):
         if dtype not in (mx.float32, mx.float16, mx.bfloat16):
             raise ValueError("LFM2 dtype must be float32, float16, or bfloat16")
         if block_tokens <= 0:
             raise ValueError("block_tokens must be positive")
+        if prefill_chunk_size <= 0 or prefill_chunk_size % block_tokens:
+            raise ValueError(
+                "prefill_chunk_size must be a positive multiple of block_tokens"
+            )
         self.model_path = resolve_model(model, revision, _download_model)
         self._model, self.config, args = load_model(self.model_path, dtype=dtype)
         self.eos_token_id = self.config.get("eos_token_id")
         self.vocab_size = args.vocab_size
-        self.geometry = CacheGeometry(args, block_tokens=block_tokens)
+        self.geometry = CacheGeometry(
+            args, block_tokens=block_tokens, prefill_chunk_size=prefill_chunk_size
+        )
         layout = self.geometry.layout(cache_slab_capacity)
         self.runner_config = RunnerConfig(
             cache_layout=layout,
             continuation_prefill=True,
-            prefill_chunk_size=block_tokens,
+            prefill_chunk_size=prefill_chunk_size,
         )
         self.arena = SlabArena(
             layout, self.geometry.shapes, group_dtypes=(dtype, dtype)
@@ -109,14 +116,16 @@ class Lfm2MlxRunner(ManagedRunner):
             logits_rows, prompt_rows = [], []
             batches = (
                 [list(range(cache_plan.rows))]
-                if np.all(cache_plan.batch.query_lengths == 1)
+                if np.all(
+                    cache_plan.batch.query_lengths == cache_plan.batch.query_lengths[0]
+                )
                 else [[row] for row in range(cache_plan.rows)]
             )
             for rows in batches:
                 cache = DeviceCache.from_plan(self.arena, cache_plan, groups, rows)
                 if len(rows) > 1:
-                    tokens = mx.array(plan.token_ids[:, None])
-                    positions = mx.array(plan.positions[:, None])
+                    tokens = mx.array(plan.token_ids.reshape(len(rows), -1))
+                    positions = mx.array(plan.positions.reshape(len(rows), -1))
                     token_start = 0
                 else:
                     token_start, token_end = map(

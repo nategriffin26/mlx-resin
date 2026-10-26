@@ -55,6 +55,7 @@ def reference_generate(model, tokens, count=4, additions=()):
 
 class RecordingRunner(Qwen35MlxRunner):
     def __init__(self, *args, **kwargs):
+        kwargs.setdefault("prefill_chunk_size", 128)
         super().__init__(*args, **kwargs)
         self.plans = []
         self.logits = []

@@ -11,8 +11,9 @@ from resin import CacheGroupFamily, CacheGroupLayout, CacheLayout
 
 
 class CacheGeometry:
-    def __init__(self, config, *, dtype, block_tokens=128):
+    def __init__(self, config, *, dtype, block_tokens=128, prefill_chunk_size=4096):
         self.block_tokens = block_tokens
+        self.prefill_chunk_size = prefill_chunk_size
         self.conv_shape = (config.linear_conv_kernel_dim - 1, config.linear_conv_dim)
         # MLX's recurrence stores value-major state, unlike Transformers' key-major state.
         self.recurrent_shape = (
@@ -43,7 +44,7 @@ class CacheGeometry:
             groups=(
                 CacheGroupLayout(self.block_tokens, blocks_per_slab=self.packings[0]),
                 CacheGroupLayout(
-                    self.block_tokens,
+                    self.prefill_chunk_size,
                     blocks_per_slab=self.packings[1],
                     family=CacheGroupFamily.STATE,
                 ),
@@ -75,7 +76,7 @@ class DeviceCache:
     def from_plan(cls, arena, geometry, plan, groups, rows):
         contexts = plan.context_lengths[rows]
         lengths = plan.batch.query_lengths[rows]
-        block = geometry.block_tokens
+        block = geometry.prefill_chunk_size
         previous, destinations = [], []
         for row, context, length in zip(rows, contexts, lengths, strict=True):
             context, length = int(context), int(length)

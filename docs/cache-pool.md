@@ -116,7 +116,7 @@ use the same number of physical blocks after rounding.
 ## MLX arena
 
 `resin.backend.mlx.SlabArena` backs every group with one contiguous byte array
-shaped `[slab, byte]`. Neither dimension grows with total byte capacity, so
+shaped `[slab, byte]`. The total byte count is not an array dimension, so
 multi-GiB arenas do not hit MLX's signed 32-bit dimension limit.
 The model supplies a `[layer, ...]` block shape and dtype for each group.
 The largest packed byte allocation determines the slab stride, aligned for
@@ -128,15 +128,16 @@ they do not wrap at the 8 GiB BF16 boundary. No request-to-cache map exists.
 MLX slice assignment can copy the entire allocation while an old view is live.
 The arena queues writes, evaluates their values and model outputs together,
 then commits one two-axis scatter in the widest commonly aligned integer word
-type, without flattening the arena. Typed views are ephemeral. Fresh blocks and null state are cleared before
-execution, including reused padding. `commit()` synchronizes before the Engine
-releases its leases.
+type, without flattening the arena. Typed views are ephemeral. Fresh blocks and
+null state are cleared before execution, including reused padding. `commit()`
+synchronizes before the Engine releases its leases.
 
 The public backend API is:
 
 | Name | Contract |
 | --- | --- |
 | `SlabArena(layout, group_shapes, group_dtypes=...)` | Allocate one mixed-precision byte arena; default group dtype is BF16. Permanently bind with `bind_resources(ResourceBinding)`. |
+| `SlabArena.storage` | Contiguous uint8 array shaped `[parent_capacity + 1, slab_bytes]`; row zero is the null slab. |
 | `SlabArena.read_layer(...)` | Read complete layer pages with a compact-address Metal kernel, without per-element indices. |
 | `SlabArena.write_layer(...)` | Queue whole-state or token-offset history writes. |
 | `SlabArena.commit(*outputs)` | Evaluate reads and optional model outputs together, then synchronously persist one scatter. |
@@ -149,12 +150,18 @@ The public backend API is:
 | `PromptScores` | Concatenate selected, top, and target prompt score columns across prefill rows. |
 | `format_output(...)` | Materialize native `ForwardOutput` columns, including raw-model output and prompt logprobs. |
 
-LFM2 uses 128-token history pages and recurrent checkpoint intervals by default.
-It stores only the final convolution state of each forward: prefix publication
-occurs at a completed chunk boundary, not at every intermediate page.
-Prefill chunks remain bounded by that interval because the Engine exposes a
-two-page state ring; a larger continuation chunk can discard the state needed
-at its start.
+Both runners retain 128-token KV pages. Their `prefill_chunk_size` also defines
+the STATE checkpoint interval: **2048 tokens for LFM2, 4096 for Qwen3.5** by
+default. This follows the CUDA Qwen runner's geometry rather than changing
+native retention. Equal-length prefill rows execute together; unequal lengths
+retain independent row execution without padding.
+
+Only a forward's final recurrent state is stored. Exact prefix hits therefore
+have 2048- or 4096-token granularity, not the former 128-token granularity.
+Changing `prefill_chunk_size` changes both scheduling and checkpoint geometry;
+it must be a positive multiple of `block_tokens`. Smaller scheduler chunks are
+safe, but a chunk must not exceed the runner's checkpoint interval: the native
+two-page ring must still contain the state from which that chunk starts.
 
 Decode attention accepts `[batch, 1, heads, dim]` Q/K/V, with head dimensions
 divisible by 32 and full-history slab/slot tables starting at logical block zero.

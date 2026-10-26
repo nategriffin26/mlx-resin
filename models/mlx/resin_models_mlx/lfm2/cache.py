@@ -12,8 +12,9 @@ from resin.backend.mlx import SlabArena
 
 
 class CacheGeometry:
-    def __init__(self, config, *, block_tokens=128):
+    def __init__(self, config, *, block_tokens=128, prefill_chunk_size=2048):
         self.block_tokens = block_tokens
+        self.prefill_chunk_size = prefill_chunk_size
         heads = config.num_key_value_heads
         dim = config.hidden_size // config.num_attention_heads
         self.shapes = (
@@ -34,7 +35,7 @@ class CacheGeometry:
             groups=(
                 CacheGroupLayout(self.block_tokens, blocks_per_slab=self.packings[0]),
                 CacheGroupLayout(
-                    self.block_tokens,
+                    self.prefill_chunk_size,
                     blocks_per_slab=self.packings[1],
                     family=CacheGroupFamily.STATE,
                 ),
@@ -67,7 +68,7 @@ class DeviceCache:
     def from_plan(cls, arena, plan, groups, rows):
         contexts = plan.context_lengths[rows]
         lengths = plan.batch.query_lengths[rows]
-        block_tokens = arena.layout.groups[0].block_tokens
+        block_tokens = arena.layout.groups[1].block_tokens
         previous, destinations = [], []
         for row, context, length in zip(rows, contexts, lengths, strict=True):
             previous.append(

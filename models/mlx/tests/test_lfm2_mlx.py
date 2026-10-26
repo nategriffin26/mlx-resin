@@ -79,6 +79,7 @@ def generate(engine, prompts, *, count=6, scores=False):
 
 class RecordingRunner(Lfm2MlxRunner):
     def __init__(self, *args, **kwargs):
+        kwargs.setdefault("prefill_chunk_size", 128)
         super().__init__(*args, **kwargs)
         self.plans = []
         self.sampled_logits = []
@@ -207,7 +208,9 @@ def test_eviction_and_release_do_not_reuse_stale_state(model_path, oracle):
     tokens = [prompt(257, offset) for offset in range(6)]
     with Engine(oracle) as engine:
         expected = [generate(engine, [item])[0] for item in tokens]
-    model = Lfm2MlxRunner(model_path, dtype=mx.float32, cache_slab_capacity=6)
+    model = Lfm2MlxRunner(
+        model_path, dtype=mx.float32, cache_slab_capacity=6, prefill_chunk_size=128
+    )
     with Engine(model, prefix_cache=True) as engine:
         actual = [generate(engine, [item])[0] for item in tokens]
         repeated, requests, _ = generate(engine, [tokens[0]])
