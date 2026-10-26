@@ -6,6 +6,7 @@ import json
 import pstats
 import statistics
 import time
+from collections import defaultdict
 
 import mlx.core as mx
 from mlx.utils import tree_flatten
@@ -80,6 +81,63 @@ def mlx_lm_trial(model, prompts, count):
     return prefill_seconds, decode_seconds, tokens
 
 
+def profile_operations(execute):
+    """Synchronize operation boundaries; these diagnostic timings are not throughput."""
+    from resin.backend.mlx import SlabArena
+    from resin_models_mlx.lfm2.cache import DeviceCache
+    from resin_models_mlx.lfm2.model import MLP, Attention, ShortConv
+
+    samples = defaultdict(list)
+    originals = []
+
+    def instrument(cls, name):
+        original = getattr(cls, name)
+        originals.append((cls, name, original))
+        label = f"{cls.__name__}.{name}"
+
+        def measured(self, *args, **kwargs):
+            mx.synchronize()
+            start = time.perf_counter()
+            result = original(self, *args, **kwargs)
+            if isinstance(result, mx.array):
+                mx.eval(result)
+            mx.synchronize()
+            samples[label].append(time.perf_counter() - start)
+            return result
+
+        setattr(cls, name, measured)
+
+    for cls, names in (
+        (Attention, ("__call__",)),
+        (ShortConv, ("__call__",)),
+        (MLP, ("__call__",)),
+        (DeviceCache, ("history", "state", "append", "store_states")),
+        (SlabArena, ("initialize_fresh", "commit")),
+    ):
+        for name in names:
+            instrument(cls, name)
+    try:
+        execute()
+    finally:
+        for cls, name, original in originals:
+            setattr(cls, name, original)
+    print(
+        json.dumps(
+            {
+                "synchronized_operations": {
+                    name: {
+                        "calls": len(values),
+                        "total_ms": sum(values) * 1000,
+                        "median_us": statistics.median(values) * 1e6,
+                    }
+                    for name, values in samples.items()
+                },
+                "note": "Parent operation timings include child operations; synchronization changes scheduling.",
+            }
+        )
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", choices=("resin", "mlx-lm"), required=True)
@@ -91,9 +149,13 @@ def main():
         "--dtype", choices=("float32", "bfloat16", "float16"), default="bfloat16"
     )
     parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--profile-operations", action="store_true")
     args = parser.parse_args()
     dtype = getattr(mx, args.dtype)
-    runner = Lfm2MlxRunner(dtype=dtype)
+    capacity = (
+        args.batch_size * ((args.prompt_tokens + args.decode_tokens) // 128 + 3) + 4
+    )
+    runner = Lfm2MlxRunner(dtype=dtype, cache_slab_capacity=max(64, capacity))
     model_path = runner.model_path
     tokenizer = Tokenizer.from_pretrained(DEFAULT_MODEL, revision=DEFAULT_REVISION)
     text = "Alice lives in Paris. Bob lives in Rome. The train leaves at noon. "
@@ -128,6 +190,7 @@ def main():
                 "device": mx.device_info(),
                 "batch_size": args.batch_size,
                 "prompt_tokens": args.prompt_tokens,
+                "prefill_chunk_size": 128 if args.backend == "resin" else 2048,
                 "measured_decode_tokens": args.decode_tokens,
                 "method": "one warmup; fresh cache each run; prefill includes first token; decode excludes first token; stop disabled",
             }
@@ -166,6 +229,10 @@ def main():
         profiler = cProfile.Profile()
         profiler.runcall(execute)
         pstats.Stats(profiler).sort_stats("tottime").print_stats(20)
+    if args.profile_operations:
+        if args.backend != "resin":
+            parser.error("--profile-operations requires --backend resin")
+        profile_operations(execute)
     if args.backend == "resin":
         engine.close()
 

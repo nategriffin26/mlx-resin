@@ -9,44 +9,96 @@ rank traces for Perfetto. `deploy/modal_bench.py` is a thin remote adapter.
 ## Apple Silicon: LFM2
 
 Measured on an Apple M5 Pro with 48 GB unified memory, MLX 0.32.4 and mlx-lm
-0.32.2, on 2026-10-25. Both backends load the unquantized
-`LiquidAI/LFM2.5-230M` checkpoint at
+0.32.2. Slice 1 was measured on 2026-10-25; slice 2 on 2026-10-26.
+Both backends load the unquantized `LiquidAI/LFM2.5-230M` checkpoint at
 `13a53837c4906b4f7405932532ba85d182bb013b`, cast to bfloat16.
 
-| Measurement (tok/s) | Backend | Run 1 | Run 2 | Run 3 | Median |
-| --- | --- | ---: | ---: | ---: | ---: |
-| Decode, batch 1 | Resin Engine | 246.25 | 246.32 | 249.81 | **246.32** |
-| Decode, batch 1 | mlx-lm | 411.60 | 410.96 | 407.23 | **410.96** |
-| Decode, batch 8 (aggregate) | Resin Engine | 1366.37 | 1366.50 | 1304.42 | **1366.37** |
-| Decode, batch 8 (aggregate) | mlx-lm | 2688.86 | 2706.22 | 2723.66 | **2706.22** |
-| Prefill, 2048 tokens | Resin Engine | 16645.59 | 16224.23 | 15840.08 | **16224.23** |
-| Prefill, 2048 tokens | mlx-lm | 42998.94 | 42157.09 | 42052.13 | **42157.09** |
+Three-run medians in tokens/s; ranges are the minimum and maximum of the
+slice-2 trials. Batch-eight decode is aggregate throughput.
+
+| Workload | Resin, slice 1 | mlx-lm, slice 1 | Resin, slice 2 (range) | mlx-lm rerun (range) |
+| --- | ---: | ---: | ---: | ---: |
+| Decode, 128-token prompt, batch 1 | 246.32 | 410.96 | **250.15** (230.33–253.22) | **409.51** (329.03–412.47) |
+| Decode, 128-token prompt, batch 8 | 1366.37 | 2706.22 | **1705.28** (1491.61–1882.19) | **2730.37** (2539.83–2777.11) |
+| Prefill, 2048 tokens, batch 1 | 16224.23 | 42157.09 | **16159.72** (14696.36–16562.40) | **42139.88** (41056.28–44816.95) |
+| Decode, 4096-token prompt, batch 1 | — | — | **186.30** (172.69–191.20) | **330.80** (330.43–331.56) |
+| Decode, 4096-token prompt, batch 8 | — | — | **527.34** (476.33–538.84) | **1325.40** (1248.31–1338.09) |
+
+Short-context batch-eight decode improves by 25%; batch-one decode and prefill
+are effectively unchanged. Resin still trails mlx-lm, particularly at 4K.
+Earlier trials overlapping another GPU workload were discarded; the table
+comes from a new sequential matrix after that workload stopped.
 
 The benchmark uses the same tokenized prose on both sides, one untimed warmup,
 fresh cache state per trial, greedy sampling, and no early stopping. Decode
 starts after the first output token and measures 128 further tokens per request
-from a 128-token prompt. Prefill includes all prompt processing and the first
+from a 128- or 4096-token prompt. Prefill includes all prompt processing and the first
 output token. Every trial checks the number of returned tokens; loading and
 request submission are untimed. The mlx-lm path uses its `BatchGenerator` API,
 including for batch one. Prefix caching is disabled. These are throughput
 measurements, not generation-quality scores.
 
 ```bash
-uv run python scripts/benchmark_lfm2_mlx.py --backend resin --batch-size 1 --prompt-tokens 128 --decode-tokens 128 --runs 3 --dtype bfloat16 --profile
+uv run python scripts/benchmark_lfm2_mlx.py --backend resin --batch-size 1 --prompt-tokens 128 --decode-tokens 128 --runs 3 --dtype bfloat16
 uv run python scripts/benchmark_lfm2_mlx.py --backend mlx-lm --batch-size 1 --prompt-tokens 128 --decode-tokens 128 --runs 3 --dtype bfloat16
 uv run python scripts/benchmark_lfm2_mlx.py --backend resin --batch-size 8 --prompt-tokens 128 --decode-tokens 128 --runs 3 --dtype bfloat16
 uv run python scripts/benchmark_lfm2_mlx.py --backend mlx-lm --batch-size 8 --prompt-tokens 128 --decode-tokens 128 --runs 3 --dtype bfloat16
 uv run python scripts/benchmark_lfm2_mlx.py --backend resin --batch-size 1 --prompt-tokens 2048 --decode-tokens 0 --runs 3 --dtype bfloat16
 uv run python scripts/benchmark_lfm2_mlx.py --backend mlx-lm --batch-size 1 --prompt-tokens 2048 --decode-tokens 0 --runs 3 --dtype bfloat16
+uv run python scripts/benchmark_lfm2_mlx.py --backend resin --batch-size 1 --prompt-tokens 4096 --decode-tokens 128 --runs 3 --dtype bfloat16
+uv run python scripts/benchmark_lfm2_mlx.py --backend mlx-lm --batch-size 1 --prompt-tokens 4096 --decode-tokens 128 --runs 3 --dtype bfloat16
+uv run python scripts/benchmark_lfm2_mlx.py --backend resin --batch-size 8 --prompt-tokens 4096 --decode-tokens 128 --runs 3 --dtype bfloat16
+uv run python scripts/benchmark_lfm2_mlx.py --backend mlx-lm --batch-size 8 --prompt-tokens 4096 --decode-tokens 128 --runs 3 --dtype bfloat16
 ```
 
-The largest observed cost is synchronous model/cache-graph execution, not the
-Rust scheduler. A separate batch-one cProfile trial took 0.571 s: 0.393 s was
-attributed to native work inside `forward`, 0.065 s to arena commit, and 0.003 s
-to `Engine.step` itself. This host profile does not resolve individual Metal
-kernels. The initial backend deliberately uses gathered attention and 128-token
-checkpoint-aligned prefill chunks; mlx-lm uses its default 2048-token prefill
-step. No custom Metal kernels or throughput tuning are included here.
+### Profiling and stopping point
+
+Slice 1's batch-one cProfile attributed 0.393 s of a 0.571 s trial to native
+work inside `forward`, 0.065 s to arena commit, and only 0.003 s to `Engine.step`.
+Slice 2 removes per-element read indices, uses direct paged decode attention,
+fuses write-address arithmetic and SwiGLU, uses MLX RoPE, stages recurrent
+addresses once per batch, and evaluates model outputs with queued writes.
+The arena still performs one synchronous scatter after all reads finish.
+
+The final operation diagnostic is reproducible with:
+
+```bash
+uv run python scripts/benchmark_lfm2_mlx.py --backend resin --batch-size 1 --prompt-tokens 128 --decode-tokens 16 --runs 1 --dtype bfloat16 --profile-operations
+uv run python scripts/benchmark_mlx_kernels.py
+```
+
+The first command synchronizes each operation separately. Across 17 forwards
+it recorded 136 recurrent reads, 102 attention calls, 238 MLP calls and 17
+commits. Median diagnostic latencies were 355 µs per recurrent read, 809 µs
+per attention call, 499 µs per MLP and 1910 µs per commit. These include forced
+synchronization, and parent timings include children: they cannot be added
+into an end-to-end latency budget. They locate the remaining work in the
+model/cache path, not scheduling. Long-context attention remains expensive.
+
+The optimization loop stopped after these measured or correctness-rejected
+alternatives:
+
+- **Compact K/V staging followed by MLX SDPA:** 344 aggregate tok/s at batch 8,
+  4K context (320–347), versus 591 (560–594) for direct attention in the
+  preceding isolated trial. Removed; the final matrix above is a separate
+  repeat of the retained implementation.
+- **Whole-forward shapeless compilation:** MLX 0.32.4 rejects both `Split`
+  and `Slice` shape inference. Removed rather than specializing on each prompt
+  length or batch size. Only shape-independent pointwise compilation remains.
+- **2048-token prefill chunks:** one complete chunk reached 37.2–48.6k tok/s
+  (median 38.4k), but the second chunk of a 4096-token prompt could no longer
+  address its starting convolution state. The native two-page STATE ring
+  retains checkpoints relative to the scheduled end. This experiment was
+  removed; production keeps 128-token chunks. Larger chunks need a native
+  retention change or coarser recurrent checkpoint intervals.
+
+The kernel probe intercepts Metal's actual `newLibraryWithSource:options:error:`
+entry, below MLX's library cache. The custom page-kernel count is **3 after
+warmup and remains 3** for `(batch, context)` values `(1,128)`, `(3,255)`,
+`(8,4096)`, `(2,32768)` and `(5,513)`. These are one page-read library and two
+attention libraries, not a claim about every MLX library kernel. Compact
+metadata avoids MLX switching small host arrays between constant and device
+address spaces, which initially caused shape-dependent recompilation.
 
 ### Arena write experiment
 
@@ -59,9 +111,12 @@ Retaining a view is the copy-on-write case; a second Python name for the same
 array object is not.
 
 The arena therefore defers writes until reads and new values are evaluated,
-then commits one scatter. This keeps contiguous storage suitable for a future
-paged-attention kernel without copying an entire arena once per model layer.
-The experiment measures MLX write primitives, not a second cache implementation.
+then commits one scatter. Slice 2 retains a single byte allocation with
+ephemeral typed views, rather than duplicating full capacity for each dtype.
+A 128 MiB byte-to-BF16 view took 98 µs and did not increase MLX active allocation
+bytes. Actual queued-write medians for 1, 16 and 128 MiB arenas were 423, 323 and
+307 µs: no capacity-proportional copy was observed. These are primitive
+diagnostics, not end-to-end throughput measurements.
 
 ### Numerical checks
 
@@ -76,6 +131,15 @@ The Torch reference's RMSNorm previously modified float32 residual inputs in
 place because `.float()` returned the original tensor. Its out-of-place fix has
 a regression covering unchanged float32 residuals and identical bfloat16
 arithmetic. Tests skip off Darwin or when MLX is unavailable.
+
+New cache tests exercise physical offsets below, at and above the 2³²-element
+boundary without allocating an 8 GiB fixture; BF16 history and FP32 recurrent
+state sharing and recycling slabs; and attention at 0, 1, tile/page boundaries,
+4096 and 32768 history tokens with deliberately NaN-filled padding. A separate
+randomized dense oracle checks grouped-query softmax. In-memory mutations that
+dropped the current token, skipped alternate history tokens, loaded padding,
+truncated addresses or rounded FP32 state all failed their checks. Restoring
+small constant-address metadata also failed the native compilation-count gate.
 
 
 ## Run a sweep
