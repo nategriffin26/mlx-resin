@@ -133,8 +133,8 @@ warmup used 39.2% CPU while system counters rose by 25,089 swap-in and 38,208
 swap-out pages. It was thrashing, not idle. No rejected or incomplete trial is
 published as model throughput.
 
-The raw current and historical records, commands, hashes, and process sample
-are in [`artifacts/benchmarks/2026-10-26-mlx-resident/`](../../../../artifacts/benchmarks/2026-10-26-mlx-resident/).
+The raw current and historical records, commands and hashes are in
+[`artifacts/benchmarks/2026-10-26-mlx-resident/`](../../../../artifacts/benchmarks/2026-10-26-mlx-resident/).
 Local originals are `local/resident-state/moe-matrix.jsonl` and
 `local/qwen36-benchmarks-final.jsonl`. Measurements use `880b139`; the subsequent
 `90d1aa7` error-guard and initialization-memory fixes are correctness-tested,

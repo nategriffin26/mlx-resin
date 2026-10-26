@@ -433,10 +433,10 @@ uv run python scripts/benchmark_mlx_matrix.py --models qwen35 --high-concurrency
 uv run python scripts/benchmark_qwen36_mlx.py --matrix --decode-batches 1 8 --runs 3 --decode-tokens 128 --output local/resident-state/moe-matrix.jsonl
 ```
 
-Commands, all accepted and rejected trials, full-row digests, profiles, historical
-baselines, failure attacks and the process sample are committed in
+Commands, all accepted and rejected trials, full-row digests, profiles and
+historical baselines are committed in
 [`artifacts/benchmarks/2026-10-26-mlx-resident/`](../artifacts/benchmarks/2026-10-26-mlx-resident/).
-The full local records remain under `local/resident-state/`. The matrix measured
+Failure-attack logs and the process sample remain under `local/resident-state/`. The matrix measured
 `880b139`; `90d1aa7` subsequently guarded flush failures and removed cohort-sized
 initialization backups by deferring unread fresh-page clearing. The latter
 change is correctness-tested, not a new throughput measurement.
