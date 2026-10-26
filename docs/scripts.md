@@ -26,6 +26,7 @@ configuration belongs in `deploy/models.py`.
 | [benchmark_qwen36_mlx.py](../scripts/benchmark_qwen36_mlx.py) | Interleave Qwen3.6 Engine and mlx-lm trials on the same quantized checkpoint; record throughput, peak allocation, cache capacity and exact commands as JSONL. |
 | [benchmark_mlx_arena.py](../scripts/benchmark_mlx_arena.py) | Measure MLX slice writes with donation versus a retained old view that forces copying. |
 | [lfm2_serve.py](../scripts/lfm2_serve.py) | Minimal CPU example: serve the Torch LFM2 runner through the native HTTP server on localhost. |
+| [mlx_serve.py](../scripts/mlx_serve.py) | Apple Silicon: serve `qwen3_5` (Qwen3.5-4B) or `qwen3_5_moe` (Qwen3.6-35B-A3B) through the native OpenAI and Anthropic HTTP server on localhost, with the `qwen3_5` recipe and prefix caching. Qualify it with `check_server.py --prefix-cache-repeats 1100`: recurrent state checkpoints every 4096 tokens, so the default probe prompt (about 1,000 tokens) can never hit. |
 | [rust_build_and_types.py](../scripts/rust_build_and_types.py) | Development build: sync type-library sources, build the Rust extension with generated stubs, normalize stubs and format them. |
 | [sync_type_libraries.py](../scripts/sync_type_libraries.py) | Make locked Linux dependency sources available to `ty` on the development host without importing those libraries or running their installation hooks. |
 | [normalize_stubs.py](../scripts/normalize_stubs.py) | Add property types, protocol bases and imports missing from generated native bindings. Called by the build script. |
