@@ -20,6 +20,9 @@ The loader honors per-layer quantization settings, splits HF's fused expert
 weights when loading unquantized fixtures, and reverses the converted checkpoint's
 RMSNorm offset before using the shared dense-family normalization.
 
+Convolution tensor layout identifies that conversion; a quantization block alone
+does not imply the norm offset was changed.
+
 ## State and steering
 
 Attention, Gated DeltaNet, cache geometry, forward scheduling and steering media

@@ -277,8 +277,9 @@ def test_config_rejects_invalid_routing_without_weakening_dense_parser(checkpoin
         Qwen35Config.from_hugging_face(raw)
 
 
+@pytest.mark.parametrize("converted_layout", [False, True])
 def test_mixed_bit_checkpoint_loader_preserves_router_bits_and_norm_offsets(
-    checkpoint, tmp_path
+    checkpoint, tmp_path, converted_layout
 ):
     import copy
 
@@ -295,8 +296,10 @@ def test_mixed_bit_checkpoint_loader_preserves_router_bits_and_norm_offsets(
     state = reference.state_dict()
     quantization = {"group_size": 64, "bits": 4, "mode": "affine"}
     for name, module in model.named_modules():
-        if isinstance(module, RMSNorm):
+        if isinstance(module, RMSNorm) and converted_layout:
             weights[name + ".weight"] = weights[name + ".weight"] + 1
+        if name.endswith(".conv1d") and not converted_layout:
+            weights[name + ".weight"] = weights[name + ".weight"].transpose(0, 2, 1)
         if not isinstance(module, (mx_nn.Linear, mx_nn.Embedding, ExpertLinear)):
             continue
         bits = 8 if name.endswith(("mlp.gate", "shared_expert_gate")) else 4

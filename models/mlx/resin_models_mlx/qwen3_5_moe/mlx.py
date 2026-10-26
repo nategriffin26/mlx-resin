@@ -37,6 +37,7 @@ def load_model(path, *, dtype):
     model = Qwen35MoeForCausalLM(config)
     quantization = raw.get("quantization") or raw.get("quantization_config")
     weights = {}
+    hf_convolution_layout = False
     for shard in sorted(path.glob("model*.safetensors")):
         for name, value in mx.load(str(shard)).items():
             if name.startswith(("model.visual.", "visual.", "vision_tower.")):
@@ -47,6 +48,7 @@ def load_model(path, *, dtype):
             if name in weights:
                 raise ValueError(f"duplicate checkpoint tensor: {name}")
             if name.endswith(".conv1d.weight") and value.shape[-1] != 1:
+                hf_convolution_layout = True
                 value = value.transpose(0, 2, 1)
             if name.endswith(".experts.gate_up_proj"):
                 gate, up = mx.split(value, 2, axis=-2)
@@ -62,8 +64,9 @@ def load_model(path, *, dtype):
             weights[name] = value
     replacements = []
     for name, module in model.named_modules():
-        if quantization and isinstance(module, RMSNorm):
-            # MLX-converted checkpoints already contain 1 + HF's norm parameter.
+        if not hf_convolution_layout and isinstance(module, RMSNorm):
+            # MLX conversion changes both convolution layout and the norm offset.
+            # Quantization metadata alone does not prove that conversion happened.
             weights[name + ".weight"] = weights[name + ".weight"].astype(mx.float32) - 1
         if name + ".scales" not in weights:
             continue
