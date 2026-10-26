@@ -22,6 +22,8 @@ configuration belongs in `deploy/models.py`.
 | [qwen35_neuron_sweep.py](../scripts/qwen35_neuron_sweep.py) | Qwen3.5 [neuron sweeps](neuron-sweeps.md): activation statistics, steered `main_rel` rollouts with random-direction controls, steer lens, direct-path connections and MLP-input captures, in the neuron explorer's file formats. |
 | [benchmark_qwen35_mlx.py](../scripts/benchmark_qwen35_mlx.py) | Compare pinned Qwen3.5-4B BF16 Engine and mlx-lm throughput with fresh caches, synchronized phase timings, and three-run medians. |
 | [benchmark_qwen35_precision.py](../scripts/benchmark_qwen35_precision.py) | Measure HF's own BF16 rounding noise beside native and exact MLX recurrence on the same pinned inputs and saved HF FP32 logits. |
+| [qwen36_mlx_chat.py](../scripts/qwen36_mlx_chat.py) | [Qwen3.6-35B-A3B MLX chat](../models/mlx/resin_models_mlx/qwen3_5_moe/README.md), using pinned affine 4-bit weights and the native Qwen recipe. |
+| [benchmark_qwen36_mlx.py](../scripts/benchmark_qwen36_mlx.py) | Interleave Qwen3.6 Engine and mlx-lm trials on the same quantized checkpoint; record throughput, peak allocation, cache capacity and exact commands as JSONL. |
 | [benchmark_mlx_arena.py](../scripts/benchmark_mlx_arena.py) | Measure MLX slice writes with donation versus a retained old view that forces copying. |
 | [lfm2_serve.py](../scripts/lfm2_serve.py) | Minimal CPU example: serve the Torch LFM2 runner through the native HTTP server on localhost. |
 | [rust_build_and_types.py](../scripts/rust_build_and_types.py) | Development build: sync type-library sources, build the Rust extension with generated stubs, normalize stubs and format them. |
