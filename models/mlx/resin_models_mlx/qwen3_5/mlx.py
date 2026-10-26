@@ -265,6 +265,10 @@ class Qwen35MlxRunner(ManagedRunner):
                 )
         groups = stage_page_groups(cache_plan)
         try:
+            has_prefill = np.any(cache_plan.batch.query_lengths > 1)
+            if has_prefill:
+                # Decode-sized free buffers cannot satisfy large prefill allocations.
+                mx.clear_cache()
             self.arena.initialize_fresh(cache_plan)
             logits_rows, prompt_rows = [], []
             batches = (
@@ -308,7 +312,7 @@ class Qwen35MlxRunner(ManagedRunner):
             output = format_output(
                 logits, sampled, plan, prompt_logprobs=PromptScores.concat(prompt_rows)
             )
-            if np.any(cache_plan.batch.query_lengths > 1):
+            if has_prefill:
                 # Prefill scratch can exceed live cache size and evict decode buffers.
                 mx.clear_cache()
             return output

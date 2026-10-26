@@ -95,19 +95,32 @@ def test_equal_length_prefill_batches_rows_without_mixing_tokens(
 
 
 @pytest.mark.parametrize("model", ["lfm2", "qwen35"])
-def test_allocator_scratch_is_released_after_prefill_not_each_decode(
+def test_allocator_scratch_is_released_only_at_prefill_boundaries(
     model, qwen35_checkpoint, monkeypatch
 ):
     runner = make_runner(model, qwen35_checkpoint)
-    releases = []
+    events = []
     clear_cache = mx.clear_cache
 
     def release():
         clear_cache()
-        releases.append(True)
+        events.append("release")
 
+    model_type = type(runner._model)
+    forward = model_type.__call__
+
+    def record(self, tokens, *args, **kwargs):
+        events.append("prefill" if tokens.shape[1] > 1 else "decode")
+        return forward(self, tokens, *args, **kwargs)
+
+    monkeypatch.setattr(model_type, "__call__", record)
     monkeypatch.setattr(mx, "clear_cache", release)
     with Engine(runner) as engine:
         generate(engine, [[1, 2, 3, 4]], 4)
-    # The resource API call is the boundary: retain decode allocations for reuse.
-    assert releases == [True]
+    # These resource API calls are the contract; decode must retain its free buffers.
+    prefill = events.index("prefill")
+    decode = events.index("decode")
+    if model == "qwen35":
+        assert "release" in events[:prefill]
+    assert "release" in events[prefill + 1 : decode]
+    assert events[decode:] == ["decode", "decode", "decode"]

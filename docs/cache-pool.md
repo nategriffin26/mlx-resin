@@ -143,9 +143,10 @@ new state normally; writes still wait for all readers and use the single
 leased scatter. No kernel mutates an MLX input buffer.
 
 Runners release MLX's unused allocator buffers after prefill, matching mlx-lm's
-prefill boundary. Large prefill scratch buffers otherwise remain cached beside
-the live model and recurrent state during decode. Decode allocations remain
-cached for reuse.
+prefill boundary. Qwen also releases them before prefill: decode-sized free
+buffers cannot satisfy large prefill allocations, and retaining both can force
+system swapping. Live weights and cache pages remain allocated. Consecutive
+decode steps retain reusable allocations.
 
 The public backend API is:
 
