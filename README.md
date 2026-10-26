@@ -93,6 +93,33 @@ to the first eight cache-key words of its prompt, so steered and plain requests
 never share prefix pages, while identical interventions still do. No Rust change
 was needed.
 
+## Serving over HTTP
+
+[`scripts/mlx_serve.py`](scripts/mlx_serve.py) puts either Qwen runner behind
+upstream's OpenAI- and Anthropic-compatible server, with prefix caching on.
+Upstream's `check_server.py` results on 2026-10-26:
+
+| Model | Passed | Failed | Skipped | Prefix probe, first → repeat |
+| --- | ---: | ---: | ---: | ---: |
+| Qwen3.5-4B | 13 | 0 | 4 | 2.95 s → 0.39 s |
+| Qwen3.6-35B-A3B | 12 | 1 | 4 | 8.56 s → 0.53 s |
+
+The prefix probe sends one prompt of about 4,440 tokens twice; the repeat finds
+4096 of them cached. The skipped checks are image input, context boundary, kernel
+compilation and evaluation. The 35B failure is the 16-way stress stage: its
+requests timed out while the Mac was swapping, so that load is not verified.
+Thinking is on by default; send `"enable_thinking": false` in the request body to
+turn it off.
+
+```sh
+MLX_ENABLE_TF32=0 uv run python scripts/mlx_serve.py qwen3_5 --port 8000
+uv run python scripts/check_server.py http://127.0.0.1:8000 --reasoning-effort low high \
+  --prefix-cache-repeats 1100 --stress --output local/check-server-qwen35.json
+```
+
+The probe prompt must be longer than the 4096-token recurrent checkpoint interval,
+hence `--prefix-cache-repeats 1100`.
+
 ## Against mlx-lm
 
 Apple M5 Pro, 48 GB, MLX 0.32.4, mlx-lm 0.32.2, measured 2026-10-26. Both sides
@@ -178,8 +205,7 @@ uv run python scripts/qwen35_mlx_chat.py --steering-demo --prompt 'Describe your
 uv run python scripts/qwen36_mlx_chat.py --prompt 'What is the capital of France?'
 ```
 
-Tests compare every runner with an independent reference. The second command loads
-the real Qwen3.5-4B and Qwen3.6-35B-A3B checkpoints:
+The second command loads the real Qwen3.5-4B and Qwen3.6-35B-A3B checkpoints:
 
 ```sh
 uv run pytest tests/test_engine.py tests/test_scheduler.py models/torch models/mlx -q
@@ -190,7 +216,7 @@ uv run pytest models/mlx/tests -m checkpoint -q
 | --- | --- |
 | [`resin/backend/mlx/`](resin/backend/mlx/) | Byte arena, Metal paged attention, sampler |
 | [`models/mlx/resin_models_mlx/`](models/mlx/resin_models_mlx/) | LFM2, Qwen3.5 and Qwen3.6 MoE runners; steering; neuron sweeps |
-| [`scripts/`](scripts/) | `*_mlx_chat.py`, `benchmark_*mlx*.py`, `qwen35_neuron_sweep.py` |
+| [`scripts/`](scripts/) | `*_mlx_chat.py`, `mlx_serve.py`, `benchmark_*mlx*.py`, `qwen35_neuron_sweep.py` |
 
 ---
 
