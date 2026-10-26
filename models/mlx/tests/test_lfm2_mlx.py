@@ -181,24 +181,26 @@ def test_nan_filled_fresh_pages_and_null_state_are_initialized(model_path, oracl
     with Engine(oracle) as engine:
         expected, _, _ = generate(engine, tokens)
     model = runner(model_path)
-    model.arena.storage[:] = float("nan")
+    model.arena.storage = mx.full(
+        model.arena.storage.size // 4, float("nan"), mx.float32
+    ).view(mx.uint8)
     mx.eval(model.arena.storage)
     with Engine(model) as engine:
         actual, _, _ = generate(engine, tokens)
     assert actual == expected
-    assert bool(mx.all(mx.isfinite(model.arena.storage[: model.arena.slab_elements])))
+    assert bool(mx.all(model.arena.storage[: model.arena.slab_bytes] == 0))
     for plan in model.plans:
         for index, group in enumerate(plan.cache_groups):
             for slab, slot in zip(
                 group.block_slab_ids, group.block_slotnums, strict=True
             ):
                 start = (
-                    int(slab) * model.arena.slab_elements
-                    + int(slot) * model.arena.block_elements[index]
+                    int(slab) * model.arena.slab_bytes
+                    + int(slot) * model.arena.block_bytes[index]
                 )
                 block = model.arena.storage[
-                    start : start + model.arena.block_elements[index]
-                ]
+                    start : start + model.arena.block_bytes[index]
+                ].view(mx.float32)
                 assert bool(mx.all(mx.isfinite(block)))
 
 

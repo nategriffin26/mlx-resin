@@ -4,8 +4,17 @@
 
 from __future__ import annotations
 
+from functools import partial
+
 import mlx.core as mx
 import mlx.nn as nn
+
+from resin.backend.mlx import paged_attention
+
+
+@partial(mx.compile, shapeless=True)
+def _swiglu(gate, value):
+    return nn.silu(gate) * value
 
 
 class Attention(nn.Module):
@@ -36,29 +45,40 @@ class Attention(nn.Module):
             self.k_proj(hidden).reshape(batch, length, self.kv_heads, self.dim)
         )
         values = self.v_proj(hidden).reshape(batch, length, self.kv_heads, self.dim)
-        frequencies = self.theta ** (
-            -mx.arange(0, self.dim, 2, dtype=mx.float32) / self.dim
-        )
-        angles = positions.astype(mx.float32)[..., None] * frequencies
-        angles = mx.concatenate((angles, angles), axis=-1)[:, :, None, :]
-        cos, sin = (
-            mx.cos(angles).astype(hidden.dtype),
-            mx.sin(angles).astype(hidden.dtype),
-        )
 
         def rotate(value):
-            first, second = mx.split(value, 2, axis=-1)
-            return value * cos + mx.concatenate((-second, first), axis=-1) * sin
+            return mx.fast.rope(
+                value.transpose(0, 2, 1, 3),
+                self.dim,
+                traditional=False,
+                base=self.theta,
+                scale=1.0,
+                offset=positions[:, 0],
+            ).transpose(0, 2, 1, 3)
 
         queries, keys = rotate(queries), rotate(keys)
         cache.append(self.layer, keys, values)
+        if length == 1:
+            output = paged_attention(
+                queries,
+                keys,
+                values,
+                cache.arena,
+                0,
+                self.layer,
+                cache.history_slabs,
+                cache.history_slots,
+                cache.device_contexts,
+                scale=self.dim**-0.5,
+            )
+            return self.out_proj(output.reshape(batch, length, -1))
         previous = cache.history(self.layer)
         if previous is not None:
             past_length = previous.shape[1]
             keys = mx.concatenate((previous[:, :, 0], keys), axis=1)
             values = mx.concatenate((previous[:, :, 1], values), axis=1)
             previous_valid = (
-                mx.arange(past_length)[None, :] < mx.array(cache.contexts)[:, None]
+                mx.arange(past_length)[None, :] < cache.device_contexts[:, None]
             )
             previous_mask = mx.broadcast_to(
                 previous_valid[:, None, :], (batch, length, past_length)
@@ -122,7 +142,7 @@ class MLP(nn.Module):
         self.w2 = nn.Linear(size, config.hidden_size, bias=False)
 
     def __call__(self, hidden):
-        return self.w2(nn.silu(self.w1(hidden)) * self.w3(hidden))
+        return self.w2(_swiglu(self.w1(hidden), self.w3(hidden)))
 
 
 class DecoderLayer(nn.Module):

@@ -45,11 +45,41 @@ class CacheGeometry:
 class DeviceCache:
     """Ephemeral views for a prefill row or a batch of one-token decode rows."""
 
-    def __init__(self, arena: SlabArena, plan, groups, rows):
-        self.arena, self.plan, self.groups, self.rows = arena, plan, groups, rows
-        self.contexts = plan.context_lengths[rows]
-        self.lengths = plan.batch.query_lengths[rows]
+    def __init__(self, arena: SlabArena, tensors, *, history_length=0):
+        self.arena = arena
+        self.tensors = tensors
+        (
+            self.history_slabs,
+            self.history_slots,
+            self.device_contexts,
+            self.append_slabs,
+            self.append_slots,
+            self.append_offsets,
+            self.state_slabs,
+            self.state_slots,
+            self.destination_slabs,
+            self.destination_slots,
+        ) = tensors
+        self.history_length = history_length
         self.block_tokens = arena.layout.groups[0].block_tokens
+
+    @classmethod
+    def from_plan(cls, arena, plan, groups, rows):
+        contexts = plan.context_lengths[rows]
+        lengths = plan.batch.query_lengths[rows]
+        block_tokens = arena.layout.groups[0].block_tokens
+        previous, destinations = [], []
+        for row, context, length in zip(rows, contexts, lengths, strict=True):
+            previous.append(
+                plan.groups[1].address(row, (int(context) - 1) // block_tokens)
+                if context
+                else (0, 0)
+            )
+            destinations.append(
+                plan.groups[1].address(row, (int(context + length) - 1) // block_tokens)
+            )
+        state_slabs, state_slots = np.asarray(previous, np.uint32).T
+        destination_slabs, destination_slots = np.asarray(destinations, np.uint32).T
         token_indices = np.concatenate(
             [
                 np.arange(plan.token_indptr[row], plan.token_indptr[row + 1])
@@ -57,22 +87,33 @@ class DeviceCache:
             ]
         )
         history = plan.groups[0]
-        self.append_slabs = mx.array(history.append_slab_ids[token_indices])
-        self.append_slots = mx.array(history.append_slotnums[token_indices])
-        self.append_offsets = mx.array(history.append_block_offsets[token_indices])
+        device_rows = mx.array(rows)
+        tensors = (
+            groups[0].slab_ids[device_rows],
+            groups[0].slotnums[device_rows],
+            mx.array(contexts),
+            mx.array(history.append_slab_ids[token_indices]),
+            mx.array(history.append_slotnums[token_indices]),
+            mx.array(history.append_block_offsets[token_indices]),
+            mx.array(state_slabs),
+            mx.array(state_slots),
+            mx.array(destination_slabs),
+            mx.array(destination_slots),
+        )
+        return cls(arena, tensors, history_length=int(contexts.max()))
 
     def history(self, layer):
-        length = int(self.contexts.max())
+        length = self.history_length
         if not length:
             return None
         columns = math.ceil(length / self.block_tokens)
-        group = self.groups[0]
-        rows = mx.array(self.rows)
         pages = self.arena.read_layer(
-            0, layer, group.slab_ids[rows, :columns], group.slotnums[rows, :columns]
+            0, layer, self.history_slabs[:, :columns], self.history_slots[:, :columns]
         )
-        pages = pages.reshape(len(self.rows), -1, *pages.shape[-3:])[:, :length]
-        valid = mx.arange(length)[None, :] < mx.array(self.contexts)[:, None]
+        pages = pages.reshape(self.device_contexts.size, -1, *pages.shape[-3:])[
+            :, :length
+        ]
+        valid = mx.arange(length)[None, :] < self.device_contexts[:, None]
         # A mask inside SDPA is too late if a padded value already contains NaN.
         return mx.where(valid[:, :, None, None, None], pages, 0)
 
@@ -88,42 +129,13 @@ class DeviceCache:
         )
 
     def state(self, layer):
-        addresses = [
-            self.plan.groups[1].address(row, (int(context) - 1) // self.block_tokens)
-            if context
-            else (0, 0)
-            for row, context in zip(self.rows, self.contexts, strict=True)
-        ]
-        slabs, slots = np.asarray(addresses, np.uint32).T
-        return self.arena.read_layer(1, layer, mx.array(slabs), mx.array(slots))
+        return self.arena.read_layer(1, layer, self.state_slabs, self.state_slots)
 
     def store_states(self, layer, convolution_input, state_length):
-        slabs, slots, states = [], [], []
-        for batch_row, row in enumerate(self.rows):
-            context, length = (
-                int(self.contexts[batch_row]),
-                int(self.lengths[batch_row]),
-            )
-            ends = list(
-                range(
-                    self.block_tokens - context % self.block_tokens,
-                    length + 1,
-                    self.block_tokens,
-                )
-            )
-            if not ends or ends[-1] != length:
-                ends.append(length)
-            for end in ends:
-                slab, slot = self.plan.groups[1].address(
-                    row, (context + end - 1) // self.block_tokens
-                )
-                slabs.append(slab)
-                slots.append(slot)
-                states.append(convolution_input[batch_row, end : end + state_length])
         self.arena.write_layer(
             1,
             layer,
-            mx.array(slabs, mx.uint32),
-            mx.array(slots, mx.uint32),
-            mx.stack(states),
+            self.destination_slabs,
+            self.destination_slots,
+            convolution_input[:, -state_length:],
         )

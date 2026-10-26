@@ -57,7 +57,7 @@ def load_model(path, *, dtype):
 
 
 class Lfm2MlxRunner(ManagedRunner):
-    """LFM2 managed runner; MLX ops gather pages before ordinary fused SDPA."""
+    """LFM2 managed runner with paged decode and checkpoint-aligned prefill."""
 
     parallelism_capabilities = ParallelismCapabilities()
 
@@ -85,7 +85,9 @@ class Lfm2MlxRunner(ManagedRunner):
             continuation_prefill=True,
             prefill_chunk_size=block_tokens,
         )
-        self.arena = SlabArena(layout, self.geometry.shapes, dtype=dtype)
+        self.arena = SlabArena(
+            layout, self.geometry.shapes, group_dtypes=(dtype, dtype)
+        )
         self._sampler = MlxSampler()
         self.forward_calls = 0
 
@@ -111,7 +113,7 @@ class Lfm2MlxRunner(ManagedRunner):
                 else [[row] for row in range(cache_plan.rows)]
             )
             for rows in batches:
-                cache = DeviceCache(self.arena, cache_plan, groups, rows)
+                cache = DeviceCache.from_plan(self.arena, cache_plan, groups, rows)
                 if len(rows) > 1:
                     tokens = mx.array(plan.token_ids[:, None])
                     positions = mx.array(plan.positions[:, None])
@@ -135,8 +137,7 @@ class Lfm2MlxRunner(ManagedRunner):
                     )
             logits = mx.concatenate(logits_rows)
             sampled = self._sampler(logits, plan)
-            mx.eval(logits, sampled)
-            self.arena.commit()
+            self.arena.commit(logits, sampled)
             return format_output(
                 logits, sampled, plan, prompt_logprobs=PromptScores.concat(prompt_rows)
             )

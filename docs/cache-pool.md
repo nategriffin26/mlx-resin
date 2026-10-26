@@ -115,27 +115,31 @@ use the same number of physical blocks after rounding.
 
 ## MLX arena
 
-`resin.backend.mlx.SlabArena` backs every group with one contiguous MLX array.
-The model supplies each group's `[layer, ...]` block shape; the group with the
-largest packed allocation determines the slab stride. Physical addresses stay
-as `(slab_id, slotnum)` until a layer view translates them into element offsets.
-No request-to-cache map exists in the MLX runner.
+`resin.backend.mlx.SlabArena` backs every group with one contiguous byte array.
+The model supplies a `[layer, ...]` block shape and dtype for each group.
+The largest packed byte allocation determines the slab stride, aligned for
+every group dtype. BF16 history and FP32 recurrent state therefore share the
+Engine's fungible pool without allocating a second capacity-sized arena.
+Physical `(slab_id, slotnum)` addresses use 64-bit element/byte arithmetic;
+they do not wrap at the 8 GiB BF16 boundary. No request-to-cache map exists.
 
-MLX slice assignment can copy the entire backing array while an old view is
-live. The arena therefore queues writes, evaluates their values and all model
-reads, then commits one scatter into the original allocation. Fresh blocks are
-cleared when their append offset is zero, including reused padding. Slab zero
-is cleared for new sequences. `commit()` synchronizes before the Engine releases
-its leases.
+MLX slice assignment can copy the entire allocation while an old view is live.
+The arena queues writes, evaluates their values and model outputs together,
+then commits one scatter in the widest commonly aligned integer word type.
+Typed views are ephemeral. Fresh blocks and null state are cleared before
+execution, including reused padding. `commit()` synchronizes before the Engine
+releases its leases.
 
 The public backend API is:
 
 | Name | Contract |
 | --- | --- |
-| `SlabArena(layout, group_shapes, dtype=...)` | Allocate typed, layer-addressable storage and permanently bind it with `bind_resources(ResourceBinding)`. |
-| `SlabArena.read_layer(...)` | Gather complete layer pages from validated slab/slot arrays. |
-| `SlabArena.write_layer(...)` | Queue whole-state or token-offset history writes; `commit()` makes them persistent. |
+| `SlabArena(layout, group_shapes, group_dtypes=...)` | Allocate one mixed-precision byte arena; default group dtype is BF16. Permanently bind with `bind_resources(ResourceBinding)`. |
+| `SlabArena.read_layer(...)` | Read complete layer pages with a compact-address Metal kernel, without per-element indices. |
+| `SlabArena.write_layer(...)` | Queue whole-state or token-offset history writes. |
+| `SlabArena.commit(*outputs)` | Evaluate reads and optional model outputs together, then synchronously persist one scatter. |
 | `SlabArena.initialize_fresh(plan)` | Clear newly entered blocks and null state before execution. |
+| `paged_attention(...)` | One-token decode over paged history plus separate uncommitted K/V; FP32 softmax accumulation. |
 | `DevicePageGroup` | Device slab IDs, slots, first logical blocks, and valid column counts. |
 | `stage_page_groups(PagedCachePlan)` | Lower native CSR tables into zero-padded MLX arrays. |
 | `MlxSampler` | Greedy or stateless seeded temperature/top-k/top-p sampling, stable under batch reordering and chunking. |
@@ -144,8 +148,21 @@ The public backend API is:
 | `format_output(...)` | Materialize native `ForwardOutput` columns, including raw-model output and prompt logprobs. |
 
 LFM2 uses 128-token history pages and recurrent checkpoint intervals by default.
-Prefill chunks cannot exceed that interval: the Engine exposes the current and
-previous state pages, not an unbounded checkpoint history. A chunk crossing an
-interval stores both the boundary checkpoint and its final partial state.
-Attention currently gathers prior pages and appends this step's keys and values
-before MLX SDPA; it does not require a custom Metal kernel.
+It stores only the final convolution state of each forward: prefix publication
+occurs at a completed chunk boundary, not at every intermediate page.
+Prefill chunks remain bounded by that interval because the Engine exposes a
+two-page state ring; a larger continuation chunk can discard the state needed
+at its start.
+
+Decode attention accepts `[batch, 1, heads, dim]` Q/K/V, with head dimensions
+divisible by 32 and full-history slab/slot tables starting at logical block zero.
+Cache pages are `[layer, token, 2, kv_heads, dim]`. History and queries have the
+same dtype; current K/V are separate because cache writes land only after the
+whole forward. Independent 32-token partitions visit each live token once,
+mask before loading padding, and combine FP32 softmax partials. Prefill still
+uses compact page reads followed by MLX SDPA.
+
+Qwen runners must declare FP32 Gated DeltaNet state separately from BF16 KV,
+size packing from **bytes**, and preserve checkpoint alignment. MoE weights and
+routing are outside this arena; neither changes Engine page ownership. Keep
+arena views within a forward so writes can reuse the allocation.
