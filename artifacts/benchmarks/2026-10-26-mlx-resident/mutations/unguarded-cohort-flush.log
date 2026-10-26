@@ -1,0 +1,60 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_____________ test_cohort_flush_failure_quarantines_engine[dense] ______________
+
+model_factory = <function model_factory.<locals>.create at 0x11ce82c00>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11ccce8b0>
+
+    def test_cohort_flush_failure_quarantines_engine(model_factory, monkeypatch):
+        model = model_factory()
+        engine = Engine(model, prefix_cache=False)
+        submit(engine, prompt(17), 10)
+        engine.step()
+        engine.step()
+        layers = model._decode_state.layers
+        submit(engine, prompt(19, 3), 10)
+    
+        def fail(*outputs):
+            raise RuntimeError("injected write-back commit failure")
+    
+        monkeypatch.setattr(model.arena, "commit", fail)
+        with pytest.raises(RuntimeError, match="injected write-back commit failure") as error:
+            engine.step()
+>       assert error.value._resin_post_accept
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'RuntimeError' object has no attribute '_resin_post_accept'
+
+models/mlx/tests/test_qwen35_resident.py:242: AttributeError
+---------------------------- Captured stderr setup -----------------------------
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+______________ test_cohort_flush_failure_quarantines_engine[moe] _______________
+
+model_factory = <function model_factory.<locals>.create at 0x11d82a980>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11503b230>
+
+    def test_cohort_flush_failure_quarantines_engine(model_factory, monkeypatch):
+        model = model_factory()
+        engine = Engine(model, prefix_cache=False)
+        submit(engine, prompt(17), 10)
+        engine.step()
+        engine.step()
+        layers = model._decode_state.layers
+        submit(engine, prompt(19, 3), 10)
+    
+        def fail(*outputs):
+            raise RuntimeError("injected write-back commit failure")
+    
+        monkeypatch.setattr(model.arena, "commit", fail)
+        with pytest.raises(RuntimeError, match="injected write-back commit failure") as error:
+            engine.step()
+>       assert error.value._resin_post_accept
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'RuntimeError' object has no attribute '_resin_post_accept'
+
+models/mlx/tests/test_qwen35_resident.py:242: AttributeError
+=========================== short test summary info ============================
+FAILED models/mlx/tests/test_qwen35_resident.py::test_cohort_flush_failure_quarantines_engine[dense]
+FAILED models/mlx/tests/test_qwen35_resident.py::test_cohort_flush_failure_quarantines_engine[moe]
+2 failed, 20 deselected in 1.17s
+warning: The `extra-build-dependencies` option is experimental and may change without warning. Pass `--preview-features extra-build-dependencies` to disable this warning.

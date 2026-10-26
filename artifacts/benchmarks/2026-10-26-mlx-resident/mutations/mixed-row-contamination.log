@@ -1,0 +1,276 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+___ test_resident_crosses_page_and_checkpoint_with_mixed_steering[dense-125] ___
+
+model_factory = <function model_factory.<locals>.create at 0x118cadf80>
+length = 125
+
+    @pytest.mark.parametrize("length", [125, 4093])
+    def test_resident_crosses_page_and_checkpoint_with_mixed_steering(model_factory, length):
+        def execute(flush):
+            model = model_factory(flush)
+            calibration = model.calibrate(prompt(33))
+            steering = model.steer(prompt(length, 1), [(1, 19, 1)], calibration)
+            with Engine(model, prefix_cache=True) as engine:
+                requests = [
+                    submit(engine, prompt(length), 8),
+                    submit(engine, None, 8, steering),
+                ]
+                while engine.has_work():
+                    engine.step()
+                    plan = model.last_plan
+                    if plan.phase == BatchPhase.DECODE and np.any(
+                        (plan.context_lengths + 1) % 128 == 0
+                    ):
+                        assert model._decode_state.layers is None
+                result = [request.take_result() for request in requests]
+            return result, model.observed
+    
+        actual, observed = execute(False)
+        expected, reference = execute(True)
+        assert actual == expected
+>       compare(observed, reference)
+
+models/mlx/tests/test_qwen35_resident.py:129: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+actual = [array([[ 1.42500564e-01,  1.45562932e-01, -3.46518487e-01,
+         2.25952610e-01,  7.60236830e-02,  3.05594858e-02,...     9.85060185e-02,  3.76281105e-02, -1.29104614e-01,
+        -1.63093492e-01,  1.95164338e-01]], dtype=float32), ...]
+expected = [array([[ 1.42500564e-01,  1.45562932e-01, -3.46518487e-01,
+         2.25952610e-01,  7.60236830e-02,  3.05594858e-02,...     8.50715712e-02,  3.68358754e-02, -1.24627307e-01,
+        -1.55213445e-01,  1.88797519e-01]], dtype=float32), ...]
+
+    def compare(actual, expected):
+        assert len(actual) == len(expected)
+        for left, right in zip(actual, expected, strict=True):
+            np.testing.assert_array_equal(left.argmax(-1), right.argmax(-1))
+>           np.testing.assert_allclose(left, right, atol=3e-4, rtol=3e-4)
+E           AssertionError: 
+E           Not equal to tolerance rtol=0.0003, atol=0.0003
+E           
+E           Mismatched elements: 498 / 514 (96.9%)
+E           First 5 mismatches are at indices:
+E            [0, 0]: 0.13618643581867218 (ACTUAL), 0.13337743282318115 (DESIRED)
+E            [0, 1]: 0.17011387646198273 (ACTUAL), 0.1603999137878418 (DESIRED)
+E            [0, 2]: -0.35232430696487427 (ACTUAL), -0.346219539642334 (DESIRED)
+E            [0, 3]: 0.22689859569072723 (ACTUAL), 0.22528263926506042 (DESIRED)
+E            [0, 4]: 0.07905460894107819 (ACTUAL), 0.08668447285890579 (DESIRED)
+E           Max absolute difference among violations: 0.03507078
+E           Max relative difference among violations: 18.543873
+E            ACTUAL: array([[ 1.361864e-01,  1.701139e-01, -3.523243e-01,  2.268986e-01,
+E                    7.905461e-02,  4.598706e-02, -1.096927e-02,  2.817773e-01,
+E                    2.302199e-01,  7.491013e-02,  8.320021e-03, -9.270951e-02,...
+E            DESIRED: array([[ 1.333774e-01,  1.603999e-01, -3.462195e-01,  2.252826e-01,
+E                    8.668447e-02,  4.868023e-02, -1.539069e-02,  2.810600e-01,
+E                    2.351194e-01,  6.282957e-02,  9.653571e-03, -7.638637e-02,...
+
+models/mlx/tests/test_qwen35_resident.py:70: AssertionError
+---------------------------- Captured stderr setup -----------------------------
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+__ test_resident_crosses_page_and_checkpoint_with_mixed_steering[dense-4093] ___
+
+model_factory = <function model_factory.<locals>.create at 0x11eb33060>
+length = 4093
+
+    @pytest.mark.parametrize("length", [125, 4093])
+    def test_resident_crosses_page_and_checkpoint_with_mixed_steering(model_factory, length):
+        def execute(flush):
+            model = model_factory(flush)
+            calibration = model.calibrate(prompt(33))
+            steering = model.steer(prompt(length, 1), [(1, 19, 1)], calibration)
+            with Engine(model, prefix_cache=True) as engine:
+                requests = [
+                    submit(engine, prompt(length), 8),
+                    submit(engine, None, 8, steering),
+                ]
+                while engine.has_work():
+                    engine.step()
+                    plan = model.last_plan
+                    if plan.phase == BatchPhase.DECODE and np.any(
+                        (plan.context_lengths + 1) % 128 == 0
+                    ):
+                        assert model._decode_state.layers is None
+                result = [request.take_result() for request in requests]
+            return result, model.observed
+    
+        actual, observed = execute(False)
+        expected, reference = execute(True)
+        assert actual == expected
+>       compare(observed, reference)
+
+models/mlx/tests/test_qwen35_resident.py:129: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+actual = [array([[ 2.20056012e-01, -1.33595141e-02,  7.21939579e-02,
+        -6.65490627e-02,  1.09574877e-01, -1.48734108e-01,...     1.77049324e-01,  3.59807946e-02, -1.23341247e-01,
+        -9.81851444e-02,  1.94085121e-01]], dtype=float32), ...]
+expected = [array([[ 2.20056012e-01, -1.33595141e-02,  7.21939579e-02,
+        -6.65490627e-02,  1.09574877e-01, -1.48734108e-01,...     1.76954672e-01,  3.04429345e-02, -1.01478495e-01,
+        -8.48031789e-02,  1.92611501e-01]], dtype=float32), ...]
+
+    def compare(actual, expected):
+        assert len(actual) == len(expected)
+        for left, right in zip(actual, expected, strict=True):
+            np.testing.assert_array_equal(left.argmax(-1), right.argmax(-1))
+>           np.testing.assert_allclose(left, right, atol=3e-4, rtol=3e-4)
+E           AssertionError: 
+E           Not equal to tolerance rtol=0.0003, atol=0.0003
+E           
+E           Mismatched elements: 508 / 514 (98.8%)
+E           First 5 mismatches are at indices:
+E            [0, 0]: 0.21303138136863708 (ACTUAL), 0.21788495779037476 (DESIRED)
+E            [0, 1]: -0.00845741480588913 (ACTUAL), -0.030616512522101402 (DESIRED)
+E            [0, 2]: 0.06328614056110382 (ACTUAL), 0.0777813047170639 (DESIRED)
+E            [0, 3]: -0.07483634352684021 (ACTUAL), -0.06662552058696747 (DESIRED)
+E            [0, 4]: 0.13472571969032288 (ACTUAL), 0.13424775004386902 (DESIRED)
+E           Max absolute difference among violations: 0.04818073
+E           Max relative difference among violations: 23.436014
+E            ACTUAL: array([[ 2.130314e-01, -8.457415e-03,  6.328614e-02, -7.483634e-02,
+E                    1.347257e-01, -1.360670e-01,  2.479862e-01, -1.166731e-01,
+E                    5.311786e-02,  6.992075e-02, -2.604602e-01,  9.740703e-02,...
+E            DESIRED: array([[ 2.178850e-01, -3.061651e-02,  7.778130e-02, -6.662552e-02,
+E                    1.342478e-01, -1.504340e-01,  2.626785e-01, -1.092913e-01,
+E                    5.854375e-02,  9.038797e-02, -2.783199e-01,  1.239701e-01,...
+
+models/mlx/tests/test_qwen35_resident.py:70: AssertionError
+____ test_resident_crosses_page_and_checkpoint_with_mixed_steering[moe-125] ____
+
+model_factory = <function model_factory.<locals>.create at 0x11eb33240>
+length = 125
+
+    @pytest.mark.parametrize("length", [125, 4093])
+    def test_resident_crosses_page_and_checkpoint_with_mixed_steering(model_factory, length):
+        def execute(flush):
+            model = model_factory(flush)
+            calibration = model.calibrate(prompt(33))
+            steering = model.steer(prompt(length, 1), [(1, 19, 1)], calibration)
+            with Engine(model, prefix_cache=True) as engine:
+                requests = [
+                    submit(engine, prompt(length), 8),
+                    submit(engine, None, 8, steering),
+                ]
+                while engine.has_work():
+                    engine.step()
+                    plan = model.last_plan
+                    if plan.phase == BatchPhase.DECODE and np.any(
+                        (plan.context_lengths + 1) % 128 == 0
+                    ):
+                        assert model._decode_state.layers is None
+                result = [request.take_result() for request in requests]
+            return result, model.observed
+    
+        actual, observed = execute(False)
+        expected, reference = execute(True)
+        assert actual == expected
+>       compare(observed, reference)
+
+models/mlx/tests/test_qwen35_resident.py:129: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+actual = [array([[ 4.72160764e-02, -2.04962835e-01,  7.18599036e-02,
+        -1.04825877e-01,  1.45032972e-01,  9.19852704e-02,...     1.10089347e-01,  5.25630526e-02, -1.62202656e-01,
+        -1.69020131e-01, -2.33643688e-02]], dtype=float32), ...]
+expected = [array([[ 4.72160764e-02, -2.04962835e-01,  7.18599036e-02,
+        -1.04825877e-01,  1.45032972e-01,  9.19852704e-02,...     1.04055978e-01,  4.73525003e-02, -1.52581975e-01,
+        -1.66536763e-01, -2.96581108e-02]], dtype=float32), ...]
+
+    def compare(actual, expected):
+        assert len(actual) == len(expected)
+        for left, right in zip(actual, expected, strict=True):
+            np.testing.assert_array_equal(left.argmax(-1), right.argmax(-1))
+>           np.testing.assert_allclose(left, right, atol=3e-4, rtol=3e-4)
+E           AssertionError: 
+E           Not equal to tolerance rtol=0.0003, atol=0.0003
+E           
+E           Mismatched elements: 507 / 514 (98.6%)
+E           First 5 mismatches are at indices:
+E            [0, 0]: 0.051960818469524384 (ACTUAL), 0.02872457727789879 (DESIRED)
+E            [0, 1]: -0.1995566040277481 (ACTUAL), -0.21079525351524353 (DESIRED)
+E            [0, 2]: 0.0458492785692215 (ACTUAL), 0.07788021117448807 (DESIRED)
+E            [0, 3]: -0.09525454789400101 (ACTUAL), -0.10566487908363342 (DESIRED)
+E            [0, 4]: 0.162290558218956 (ACTUAL), 0.13738277554512024 (DESIRED)
+E           Max absolute difference among violations: 0.05519054
+E           Max relative difference among violations: 1052.1454
+E            ACTUAL: array([[ 5.196082e-02, -1.995566e-01,  4.584928e-02, -9.525455e-02,
+E                    1.622906e-01,  9.614887e-02, -4.404925e-02,  1.360956e-01,
+E                   -2.746933e-01,  1.795151e-01,  1.737290e-01,  1.414306e-01,...
+E            DESIRED: array([[ 2.872458e-02, -2.107953e-01,  7.788021e-02, -1.056649e-01,
+E                    1.373828e-01,  1.196143e-01, -2.365288e-02,  1.380066e-01,
+E                   -2.941323e-01,  1.836287e-01,  1.792347e-01,  1.226821e-01,...
+
+models/mlx/tests/test_qwen35_resident.py:70: AssertionError
+___ test_resident_crosses_page_and_checkpoint_with_mixed_steering[moe-4093] ____
+
+model_factory = <function model_factory.<locals>.create at 0x110fb3ec0>
+length = 4093
+
+    @pytest.mark.parametrize("length", [125, 4093])
+    def test_resident_crosses_page_and_checkpoint_with_mixed_steering(model_factory, length):
+        def execute(flush):
+            model = model_factory(flush)
+            calibration = model.calibrate(prompt(33))
+            steering = model.steer(prompt(length, 1), [(1, 19, 1)], calibration)
+            with Engine(model, prefix_cache=True) as engine:
+                requests = [
+                    submit(engine, prompt(length), 8),
+                    submit(engine, None, 8, steering),
+                ]
+                while engine.has_work():
+                    engine.step()
+                    plan = model.last_plan
+                    if plan.phase == BatchPhase.DECODE and np.any(
+                        (plan.context_lengths + 1) % 128 == 0
+                    ):
+                        assert model._decode_state.layers is None
+                result = [request.take_result() for request in requests]
+            return result, model.observed
+    
+        actual, observed = execute(False)
+        expected, reference = execute(True)
+        assert actual == expected
+>       compare(observed, reference)
+
+models/mlx/tests/test_qwen35_resident.py:129: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+actual = [array([[-3.45753692e-03,  1.18300810e-01, -1.93907619e-01,
+        -1.28450185e-01, -4.90535498e-02,  4.19796556e-02,...     1.34051457e-01, -1.11223340e-01, -7.85954520e-02,
+        -2.55199820e-02,  1.03500788e-03]], dtype=float32), ...]
+expected = [array([[-3.45753692e-03,  1.18300810e-01, -1.93907619e-01,
+        -1.28450185e-01, -4.90535498e-02,  4.19796556e-02,...     1.33005932e-01, -1.16330460e-01, -8.04466680e-02,
+        -2.60434784e-02, -1.20595621e-03]], dtype=float32), ...]
+
+    def compare(actual, expected):
+        assert len(actual) == len(expected)
+        for left, right in zip(actual, expected, strict=True):
+            np.testing.assert_array_equal(left.argmax(-1), right.argmax(-1))
+>           np.testing.assert_allclose(left, right, atol=3e-4, rtol=3e-4)
+E           AssertionError: 
+E           Not equal to tolerance rtol=0.0003, atol=0.0003
+E           
+E           Mismatched elements: 508 / 514 (98.8%)
+E           First 5 mismatches are at indices:
+E            [0, 0]: -0.006026857532560825 (ACTUAL), -0.01979072019457817 (DESIRED)
+E            [0, 1]: 0.1365985870361328 (ACTUAL), 0.1344004124403 (DESIRED)
+E            [0, 2]: -0.23829273879528046 (ACTUAL), -0.18763768672943115 (DESIRED)
+E            [0, 3]: -0.12490931898355484 (ACTUAL), -0.14617273211479187 (DESIRED)
+E            [0, 4]: -0.039891067892313004 (ACTUAL), -0.04644857347011566 (DESIRED)
+E           Max absolute difference among violations: 0.05998665
+E           Max relative difference among violations: 11.934774
+E            ACTUAL: array([[-6.026858e-03,  1.365986e-01, -2.382927e-01, -1.249093e-01,
+E                   -3.989107e-02,  9.002812e-02,  1.111217e-01, -1.661320e-02,
+E                    2.361327e-01,  1.183025e-01,  2.769716e-01, -2.627662e-01,...
+E            DESIRED: array([[-0.019791,  0.1344  , -0.187638, -0.146173, -0.046449,  0.054978,
+E                    0.134552,  0.017038,  0.24753 ,  0.0919  ,  0.305698, -0.244123,
+E                   -0.160373,  0.15904 , -0.17826 ,  0.025563, -0.087163,  0.161389,...
+
+models/mlx/tests/test_qwen35_resident.py:70: AssertionError
+=========================== short test summary info ============================
+FAILED models/mlx/tests/test_qwen35_resident.py::test_resident_crosses_page_and_checkpoint_with_mixed_steering[dense-125]
+FAILED models/mlx/tests/test_qwen35_resident.py::test_resident_crosses_page_and_checkpoint_with_mixed_steering[dense-4093]
+FAILED models/mlx/tests/test_qwen35_resident.py::test_resident_crosses_page_and_checkpoint_with_mixed_steering[moe-125]
+FAILED models/mlx/tests/test_qwen35_resident.py::test_resident_crosses_page_and_checkpoint_with_mixed_steering[moe-4093]
+4 failed, 8 deselected in 1.40s
+warning: The `extra-build-dependencies` option is experimental and may change without warning. Pass `--preview-features extra-build-dependencies` to disable this warning.

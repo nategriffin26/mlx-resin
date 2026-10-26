@@ -1,0 +1,46 @@
+[
+  {
+    "backend": "resin",
+    "batch_size": 1,
+    "accepted_trials": 3,
+    "qualified": false,
+    "decode_tps": {
+      "median": 26.838236619383984,
+      "min": 15.027460850762171,
+      "max": 38.879076235540275
+    }
+  },
+  {
+    "backend": "mlx-lm",
+    "batch_size": 1,
+    "accepted_trials": 3,
+    "qualified": false,
+    "decode_tps": {
+      "median": 85.26769613677322,
+      "min": 51.77278823931899,
+      "max": 92.05306932540638
+    }
+  },
+  {
+    "backend": "resin",
+    "batch_size": 8,
+    "accepted_trials": 3,
+    "qualified": true,
+    "decode_tps": {
+      "median": 255.47645160092296,
+      "min": 222.03246907201367,
+      "max": 261.7932361898322
+    }
+  },
+  {
+    "backend": "mlx-lm",
+    "batch_size": 8,
+    "accepted_trials": 3,
+    "qualified": true,
+    "decode_tps": {
+      "median": 326.68645072735535,
+      "min": 267.74028604520413,
+      "max": 328.2011571701334
+    }
+  }
+]

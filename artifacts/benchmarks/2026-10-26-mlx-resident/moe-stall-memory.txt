@@ -1,0 +1,80 @@
+BEFORE
+Mach Virtual Memory Statistics: (page size of 16384 bytes)
+Pages free:                                     6962.
+Pages active:                                 525032.
+Pages inactive:                               553143.
+Pages speculative:                              9640.
+Pages throttled:                                   0.
+Pages wired down:                             957215.
+Pages purgeable:                                   0.
+"Translation faults":                    63841080601.
+Pages copy-on-write:                      3310237382.
+Pages zero filled:                       33108953290.
+Pages reactivated:                        6437919664.
+Pages purged:                              410469325.
+File-backed pages:                            240183.
+Anonymous pages:                              847632.
+Pages stored in compressor:                  1651828.
+Pages occupied by compressor:                1071718.
+Decompressions:                          10613772502.
+Compressions:                            11291499966.
+Pageins:                                  1383767604.
+Pageouts:                                    1918010.
+Swapins:                                   995525263.
+Swapouts:                                 1049854979.
+Pages tagged:                                 260767.
+Pages tagged resident:                        199443.
+Pages tagged compressed:                       61324.
+Pages tag-storage:                             98304.
+Pages tag-storage holding tags:                15246.
+Pages tag-storage free:                           13.
+Pages tag-storage non-tag pageable:            82926.
+Pages tag-storage non-tag wired:                  11.
+Bytes of compressed tags:                   10027200.
+Tagged compressions:                        91490702.
+Tagged decompressions:                      88760783.
+
+PROCESS
+  PID  PPID  %CPU    RSS ELAPSED STAT COMMAND
+ 9913 69972  39.2  46128   00:46 Rs   /Users/Nate/Projects/mlx-resin/.venv/bin/python -u -c from resin_models_mlx.qwen3_5.cache import DecodeState; DecodeState.prepare=lambda self,plan:None; from scripts.benchmark_qwen36_mlx import main; main() --backend resin --batch-size 1 --decode-tokens 128 --runs 1
+
+AFTER
+Mach Virtual Memory Statistics: (page size of 16384 bytes)
+Pages free:                                     9559.
+Pages active:                                 440786.
+Pages inactive:                               470861.
+Pages speculative:                              6722.
+Pages throttled:                                   0.
+Pages wired down:                             894204.
+Pages purgeable:                                   2.
+"Translation faults":                    63842174497.
+Pages copy-on-write:                      3310270248.
+Pages zero filled:                       33109141191.
+Pages reactivated:                        6438377339.
+Pages purged:                              410475466.
+File-backed pages:                            279641.
+Anonymous pages:                              638728.
+Pages stored in compressor:                  1850447.
+Pages occupied by compressor:                1301564.
+Decompressions:                          10615380595.
+Compressions:                            11293372888.
+Pageins:                                  1383803539.
+Pageouts:                                    1918015.
+Swapins:                                   995550352.
+Swapouts:                                 1049893187.
+Pages tagged:                                 260503.
+Pages tagged resident:                        200148.
+Pages tagged compressed:                       60355.
+Pages tag-storage:                             98304.
+Pages tag-storage holding tags:                15248.
+Pages tag-storage free:                          267.
+Pages tag-storage non-tag pageable:            82672.
+Pages tag-storage non-tag wired:                  11.
+Bytes of compressed tags:                    9807360.
+Tagged compressions:                        91496241.
+Tagged decompressions:                      88766749.
+
+SAMPLE
+Sampling process 9913 for 5 seconds with 1 millisecond of run time between samples
+Sampling completed, processing symbols...
+Sample analysis of process 9913 written to file /Users/Nate/Projects/mlx-resin/local/resident-state/moe-stall.sample.txt

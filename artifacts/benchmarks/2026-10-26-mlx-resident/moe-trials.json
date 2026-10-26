@@ -1,0 +1,1016 @@
+[
+  {
+    "backend": "resin",
+    "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+    "revision": "38740b847e4cb78f352aba30aa41c76e08e6eb46",
+    "quantization": "affine 4-bit, 8-bit routers, group_size=64",
+    "batch_size": 1,
+    "prompt_tokens": 128,
+    "decode_tokens": 128,
+    "cache_bytes": 461045760,
+    "max_batch_tokens": 4096,
+    "prefill_chunk_size": 4096,
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 40200896512,
+      "memory_size": 51539607552,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 30150672384,
+      "resource_limit": 499000
+    },
+    "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+    "capacity_only": false,
+    "trial": 1,
+    "prefill_seconds": 0.220778375165537,
+    "decode_seconds": 8.517739708069712,
+    "prefill_tps": 579.7669264665396,
+    "decode_tps": 15.027460850762171,
+    "peak_bytes": 20423433248,
+    "prefill_peak_bytes": 20423433248,
+    "decode_peak_bytes": 20235981472,
+    "decode_memory_before": {
+      "Pages occupied by compressor": 264304,
+      "Pageouts": 1855461,
+      "Swapins": 983035892,
+      "Swapouts": 1036196341
+    },
+    "active_bytes": 19970189732,
+    "generated_tokens": 129,
+    "first_tokens": [
+      28445,
+      6107,
+      303,
+      11751,
+      13,
+      13853,
+      6107,
+      303
+    ],
+    "token_hashes": [
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2"
+    ],
+    "paging_before": {
+      "Pageouts": 1855461,
+      "Swapins": 983035788,
+      "Swapouts": 1036196341
+    },
+    "paging_after": {
+      "Pageouts": 1855463,
+      "Swapins": 983040932,
+      "Swapouts": 1036196341
+    },
+    "paging_delta": {
+      "Pageouts": 2,
+      "Swapins": 5144,
+      "Swapouts": 0
+    },
+    "accepted": true,
+    "command": [
+      "/Users/Nate/Projects/mlx-resin/.venv/bin/python3",
+      "/Users/Nate/Projects/mlx-resin/scripts/benchmark_qwen36_mlx.py",
+      "--backend",
+      "resin",
+      "--batch-size",
+      "1",
+      "--prompt-tokens",
+      "128",
+      "--runs",
+      "1",
+      "--decode-tokens",
+      "128"
+    ]
+  },
+  {
+    "backend": "mlx-lm",
+    "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+    "revision": "38740b847e4cb78f352aba30aa41c76e08e6eb46",
+    "quantization": "affine 4-bit, 8-bit routers, group_size=64",
+    "batch_size": 1,
+    "prompt_tokens": 128,
+    "decode_tokens": 128,
+    "cache_bytes": null,
+    "max_batch_tokens": null,
+    "prefill_chunk_size": 2048,
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 40200896512,
+      "memory_size": 51539607552,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 30150672384,
+      "resource_limit": 499000
+    },
+    "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+    "capacity_only": false,
+    "trial": 1,
+    "prefill_seconds": 0.22297437489032745,
+    "decode_seconds": 1.501154666999355,
+    "prefill_tps": 574.0569967421516,
+    "decode_tps": 85.26769613677322,
+    "peak_bytes": 19830384200,
+    "prefill_peak_bytes": 19830384200,
+    "decode_peak_bytes": 19601316867,
+    "decode_memory_before": {
+      "Pages occupied by compressor": 362107,
+      "Pageouts": 1855843,
+      "Swapins": 983084956,
+      "Swapouts": 1036196341
+    },
+    "active_bytes": 19508787466,
+    "generated_tokens": 129,
+    "first_tokens": [
+      28445,
+      6107,
+      303,
+      11751,
+      13,
+      13853,
+      6107,
+      303
+    ],
+    "token_hashes": [
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2"
+    ],
+    "paging_before": {
+      "Pageouts": 1855843,
+      "Swapins": 983084880,
+      "Swapouts": 1036196341
+    },
+    "paging_after": {
+      "Pageouts": 1855843,
+      "Swapins": 983085155,
+      "Swapouts": 1036196341
+    },
+    "paging_delta": {
+      "Pageouts": 0,
+      "Swapins": 275,
+      "Swapouts": 0
+    },
+    "accepted": true,
+    "command": [
+      "/Users/Nate/Projects/mlx-resin/.venv/bin/python3",
+      "/Users/Nate/Projects/mlx-resin/scripts/benchmark_qwen36_mlx.py",
+      "--backend",
+      "mlx-lm",
+      "--batch-size",
+      "1",
+      "--prompt-tokens",
+      "128",
+      "--runs",
+      "1",
+      "--decode-tokens",
+      "128"
+    ]
+  },
+  {
+    "backend": "mlx-lm",
+    "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+    "revision": "38740b847e4cb78f352aba30aa41c76e08e6eb46",
+    "quantization": "affine 4-bit, 8-bit routers, group_size=64",
+    "batch_size": 1,
+    "prompt_tokens": 128,
+    "decode_tokens": 128,
+    "cache_bytes": null,
+    "max_batch_tokens": null,
+    "prefill_chunk_size": 2048,
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 40200896512,
+      "memory_size": 51539607552,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 30150672384,
+      "resource_limit": 499000
+    },
+    "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+    "capacity_only": false,
+    "trial": 2,
+    "prefill_seconds": 0.21775183407589793,
+    "decode_seconds": 1.3905022498220205,
+    "prefill_tps": 587.8251292036663,
+    "decode_tps": 92.05306932540638,
+    "peak_bytes": 19830351432,
+    "prefill_peak_bytes": 19830351432,
+    "decode_peak_bytes": 19600343715,
+    "decode_memory_before": {
+      "Pages occupied by compressor": 332423,
+      "Pageouts": 1856749,
+      "Swapins": 983099576,
+      "Swapouts": 1036196341
+    },
+    "active_bytes": 19508787466,
+    "generated_tokens": 129,
+    "first_tokens": [
+      28445,
+      6107,
+      303,
+      11751,
+      13,
+      13853,
+      6107,
+      303
+    ],
+    "token_hashes": [
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2"
+    ],
+    "paging_before": {
+      "Pageouts": 1856749,
+      "Swapins": 983099501,
+      "Swapouts": 1036196341
+    },
+    "paging_after": {
+      "Pageouts": 1856749,
+      "Swapins": 983099796,
+      "Swapouts": 1036196341
+    },
+    "paging_delta": {
+      "Pageouts": 0,
+      "Swapins": 295,
+      "Swapouts": 0
+    },
+    "accepted": true,
+    "command": [
+      "/Users/Nate/Projects/mlx-resin/.venv/bin/python3",
+      "/Users/Nate/Projects/mlx-resin/scripts/benchmark_qwen36_mlx.py",
+      "--backend",
+      "mlx-lm",
+      "--batch-size",
+      "1",
+      "--prompt-tokens",
+      "128",
+      "--runs",
+      "1",
+      "--decode-tokens",
+      "128"
+    ]
+  },
+  {
+    "backend": "resin",
+    "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+    "revision": "38740b847e4cb78f352aba30aa41c76e08e6eb46",
+    "quantization": "affine 4-bit, 8-bit routers, group_size=64",
+    "batch_size": 1,
+    "prompt_tokens": 128,
+    "decode_tokens": 128,
+    "cache_bytes": 461045760,
+    "max_batch_tokens": 4096,
+    "prefill_chunk_size": 4096,
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 40200896512,
+      "memory_size": 51539607552,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 30150672384,
+      "resource_limit": 499000
+    },
+    "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+    "capacity_only": false,
+    "trial": 2,
+    "prefill_seconds": 0.22658066707663238,
+    "decode_seconds": 4.769314832985401,
+    "prefill_tps": 564.9202187082838,
+    "decode_tps": 26.838236619383984,
+    "peak_bytes": 20423465896,
+    "prefill_peak_bytes": 20423465896,
+    "decode_peak_bytes": 20235981472,
+    "decode_memory_before": {
+      "Pages occupied by compressor": 333237,
+      "Pageouts": 1857040,
+      "Swapins": 983113425,
+      "Swapouts": 1036196341
+    },
+    "active_bytes": 19970189732,
+    "generated_tokens": 129,
+    "first_tokens": [
+      28445,
+      6107,
+      303,
+      11751,
+      13,
+      13853,
+      6107,
+      303
+    ],
+    "token_hashes": [
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2"
+    ],
+    "paging_before": {
+      "Pageouts": 1857040,
+      "Swapins": 983113393,
+      "Swapouts": 1036196341
+    },
+    "paging_after": {
+      "Pageouts": 1857040,
+      "Swapins": 983113577,
+      "Swapouts": 1036196341
+    },
+    "paging_delta": {
+      "Pageouts": 0,
+      "Swapins": 184,
+      "Swapouts": 0
+    },
+    "accepted": true,
+    "command": [
+      "/Users/Nate/Projects/mlx-resin/.venv/bin/python3",
+      "/Users/Nate/Projects/mlx-resin/scripts/benchmark_qwen36_mlx.py",
+      "--backend",
+      "resin",
+      "--batch-size",
+      "1",
+      "--prompt-tokens",
+      "128",
+      "--runs",
+      "1",
+      "--decode-tokens",
+      "128"
+    ]
+  },
+  {
+    "backend": "resin",
+    "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+    "revision": "38740b847e4cb78f352aba30aa41c76e08e6eb46",
+    "quantization": "affine 4-bit, 8-bit routers, group_size=64",
+    "batch_size": 1,
+    "prompt_tokens": 128,
+    "decode_tokens": 128,
+    "cache_bytes": 461045760,
+    "max_batch_tokens": 4096,
+    "prefill_chunk_size": 4096,
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 40200896512,
+      "memory_size": 51539607552,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 30150672384,
+      "resource_limit": 499000
+    },
+    "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+    "capacity_only": false,
+    "trial": 3,
+    "prefill_seconds": 0.2766535000409931,
+    "decode_seconds": 3.292259291978553,
+    "prefill_tps": 462.6726210983545,
+    "decode_tps": 38.879076235540275,
+    "peak_bytes": 20423465896,
+    "prefill_peak_bytes": 20423465896,
+    "decode_peak_bytes": 20235981472,
+    "decode_memory_before": {
+      "Pages occupied by compressor": 227391,
+      "Pageouts": 1858658,
+      "Swapins": 983326030,
+      "Swapouts": 1036577064
+    },
+    "active_bytes": 19970189732,
+    "generated_tokens": 129,
+    "first_tokens": [
+      28445,
+      6107,
+      303,
+      11751,
+      13,
+      13853,
+      6107,
+      303
+    ],
+    "token_hashes": [
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2"
+    ],
+    "paging_before": {
+      "Pageouts": 1858658,
+      "Swapins": 983325207,
+      "Swapouts": 1036577064
+    },
+    "paging_after": {
+      "Pageouts": 1858660,
+      "Swapins": 983329861,
+      "Swapouts": 1036577064
+    },
+    "paging_delta": {
+      "Pageouts": 2,
+      "Swapins": 4654,
+      "Swapouts": 0
+    },
+    "accepted": true,
+    "command": [
+      "/Users/Nate/Projects/mlx-resin/.venv/bin/python3",
+      "/Users/Nate/Projects/mlx-resin/scripts/benchmark_qwen36_mlx.py",
+      "--backend",
+      "resin",
+      "--batch-size",
+      "1",
+      "--prompt-tokens",
+      "128",
+      "--runs",
+      "1",
+      "--decode-tokens",
+      "128"
+    ]
+  },
+  {
+    "backend": "mlx-lm",
+    "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+    "revision": "38740b847e4cb78f352aba30aa41c76e08e6eb46",
+    "quantization": "affine 4-bit, 8-bit routers, group_size=64",
+    "batch_size": 1,
+    "prompt_tokens": 128,
+    "decode_tokens": 128,
+    "cache_bytes": null,
+    "max_batch_tokens": null,
+    "prefill_chunk_size": 2048,
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 40200896512,
+      "memory_size": 51539607552,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 30150672384,
+      "resource_limit": 499000
+    },
+    "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+    "capacity_only": false,
+    "trial": 3,
+    "prefill_seconds": 0.2340134170372039,
+    "decode_seconds": 2.4723412501625717,
+    "prefill_tps": 546.9771845588251,
+    "decode_tps": 51.77278823931899,
+    "peak_bytes": 19827566280,
+    "prefill_peak_bytes": 19827566280,
+    "decode_peak_bytes": 19599393863,
+    "decode_memory_before": {
+      "Pages occupied by compressor": 372114,
+      "Pageouts": 1860120,
+      "Swapins": 983390414,
+      "Swapouts": 1036606700
+    },
+    "active_bytes": 19508787466,
+    "generated_tokens": 129,
+    "first_tokens": [
+      28445,
+      6107,
+      303,
+      11751,
+      13,
+      13853,
+      6107,
+      303
+    ],
+    "token_hashes": [
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2"
+    ],
+    "paging_before": {
+      "Pageouts": 1860118,
+      "Swapins": 983389714,
+      "Swapouts": 1036606700
+    },
+    "paging_after": {
+      "Pageouts": 1860120,
+      "Swapins": 983392716,
+      "Swapouts": 1036606700
+    },
+    "paging_delta": {
+      "Pageouts": 2,
+      "Swapins": 3002,
+      "Swapouts": 0
+    },
+    "accepted": true,
+    "command": [
+      "/Users/Nate/Projects/mlx-resin/.venv/bin/python3",
+      "/Users/Nate/Projects/mlx-resin/scripts/benchmark_qwen36_mlx.py",
+      "--backend",
+      "mlx-lm",
+      "--batch-size",
+      "1",
+      "--prompt-tokens",
+      "128",
+      "--runs",
+      "1",
+      "--decode-tokens",
+      "128"
+    ]
+  },
+  {
+    "backend": "resin",
+    "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+    "revision": "38740b847e4cb78f352aba30aa41c76e08e6eb46",
+    "quantization": "affine 4-bit, 8-bit routers, group_size=64",
+    "batch_size": 8,
+    "prompt_tokens": 128,
+    "decode_tokens": 128,
+    "cache_bytes": 922091520,
+    "max_batch_tokens": 4096,
+    "prefill_chunk_size": 4096,
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 40200896512,
+      "memory_size": 51539607552,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 30150672384,
+      "resource_limit": 499000
+    },
+    "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+    "capacity_only": false,
+    "trial": 1,
+    "prefill_seconds": 1.0146203751210123,
+    "decode_seconds": 4.611938084010035,
+    "prefill_tps": 1009.2444672992783,
+    "decode_tps": 222.03246907201367,
+    "peak_bytes": 22968157964,
+    "prefill_peak_bytes": 22968157964,
+    "decode_peak_bytes": 22555767232,
+    "decode_memory_before": {
+      "Pages occupied by compressor": 375767,
+      "Pageouts": 1861802,
+      "Swapins": 984527170,
+      "Swapouts": 1037892639
+    },
+    "active_bytes": 20431235608,
+    "generated_tokens": 1032,
+    "first_tokens": [
+      28445,
+      6107,
+      303,
+      11751,
+      13,
+      13853,
+      6107,
+      303
+    ],
+    "token_hashes": [
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2"
+    ],
+    "paging_before": {
+      "Pageouts": 1861790,
+      "Swapins": 984526036,
+      "Swapouts": 1037892639
+    },
+    "paging_after": {
+      "Pageouts": 1861802,
+      "Swapins": 984539743,
+      "Swapouts": 1037892639
+    },
+    "paging_delta": {
+      "Pageouts": 12,
+      "Swapins": 13707,
+      "Swapouts": 0
+    },
+    "accepted": true,
+    "command": [
+      "/Users/Nate/Projects/mlx-resin/.venv/bin/python3",
+      "/Users/Nate/Projects/mlx-resin/scripts/benchmark_qwen36_mlx.py",
+      "--backend",
+      "resin",
+      "--batch-size",
+      "8",
+      "--prompt-tokens",
+      "128",
+      "--runs",
+      "1",
+      "--decode-tokens",
+      "128"
+    ]
+  },
+  {
+    "backend": "mlx-lm",
+    "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+    "revision": "38740b847e4cb78f352aba30aa41c76e08e6eb46",
+    "quantization": "affine 4-bit, 8-bit routers, group_size=64",
+    "batch_size": 8,
+    "prompt_tokens": 128,
+    "decode_tokens": 128,
+    "cache_bytes": null,
+    "max_batch_tokens": null,
+    "prefill_chunk_size": 2048,
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 40200896512,
+      "memory_size": 51539607552,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 30150672384,
+      "resource_limit": 499000
+    },
+    "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+    "capacity_only": false,
+    "trial": 1,
+    "prefill_seconds": 0.47560949996113777,
+    "decode_seconds": 3.1345040411688387,
+    "prefill_tps": 2153.026800523689,
+    "decode_tps": 326.68645072735535,
+    "peak_bytes": 21129743086,
+    "prefill_peak_bytes": 21129743086,
+    "decode_peak_bytes": 20225743146,
+    "decode_memory_before": {
+      "Pages occupied by compressor": 281531,
+      "Pageouts": 1862126,
+      "Swapins": 984576206,
+      "Swapouts": 1037892639
+    },
+    "active_bytes": 19508787466,
+    "generated_tokens": 1032,
+    "first_tokens": [
+      28445,
+      6107,
+      303,
+      11751,
+      13,
+      13853,
+      6107,
+      303
+    ],
+    "token_hashes": [
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2"
+    ],
+    "paging_before": {
+      "Pageouts": 1862126,
+      "Swapins": 984576063,
+      "Swapouts": 1037892639
+    },
+    "paging_after": {
+      "Pageouts": 1862126,
+      "Swapins": 984579186,
+      "Swapouts": 1037892639
+    },
+    "paging_delta": {
+      "Pageouts": 0,
+      "Swapins": 3123,
+      "Swapouts": 0
+    },
+    "accepted": true,
+    "command": [
+      "/Users/Nate/Projects/mlx-resin/.venv/bin/python3",
+      "/Users/Nate/Projects/mlx-resin/scripts/benchmark_qwen36_mlx.py",
+      "--backend",
+      "mlx-lm",
+      "--batch-size",
+      "8",
+      "--prompt-tokens",
+      "128",
+      "--runs",
+      "1",
+      "--decode-tokens",
+      "128"
+    ]
+  },
+  {
+    "backend": "mlx-lm",
+    "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+    "revision": "38740b847e4cb78f352aba30aa41c76e08e6eb46",
+    "quantization": "affine 4-bit, 8-bit routers, group_size=64",
+    "batch_size": 8,
+    "prompt_tokens": 128,
+    "decode_tokens": 128,
+    "cache_bytes": null,
+    "max_batch_tokens": null,
+    "prefill_chunk_size": 2048,
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 40200896512,
+      "memory_size": 51539607552,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 30150672384,
+      "resource_limit": 499000
+    },
+    "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+    "capacity_only": false,
+    "trial": 2,
+    "prefill_seconds": 0.5272448749747127,
+    "decode_seconds": 3.8246018749196082,
+    "prefill_tps": 1942.171557474337,
+    "decode_tps": 267.74028604520413,
+    "peak_bytes": 21129743110,
+    "prefill_peak_bytes": 21129743110,
+    "decode_peak_bytes": 20208966194,
+    "decode_memory_before": {
+      "Pages occupied by compressor": 439124,
+      "Pageouts": 1863202,
+      "Swapins": 984647407,
+      "Swapouts": 1037956940
+    },
+    "active_bytes": 19508787466,
+    "generated_tokens": 1032,
+    "first_tokens": [
+      28445,
+      6107,
+      303,
+      11751,
+      13,
+      13853,
+      6107,
+      303
+    ],
+    "token_hashes": [
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2"
+    ],
+    "paging_before": {
+      "Pageouts": 1863202,
+      "Swapins": 984647183,
+      "Swapouts": 1037956940
+    },
+    "paging_after": {
+      "Pageouts": 1863420,
+      "Swapins": 984658177,
+      "Swapouts": 1037956940
+    },
+    "paging_delta": {
+      "Pageouts": 218,
+      "Swapins": 10994,
+      "Swapouts": 0
+    },
+    "accepted": true,
+    "command": [
+      "/Users/Nate/Projects/mlx-resin/.venv/bin/python3",
+      "/Users/Nate/Projects/mlx-resin/scripts/benchmark_qwen36_mlx.py",
+      "--backend",
+      "mlx-lm",
+      "--batch-size",
+      "8",
+      "--prompt-tokens",
+      "128",
+      "--runs",
+      "1",
+      "--decode-tokens",
+      "128"
+    ]
+  },
+  {
+    "backend": "resin",
+    "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+    "revision": "38740b847e4cb78f352aba30aa41c76e08e6eb46",
+    "quantization": "affine 4-bit, 8-bit routers, group_size=64",
+    "batch_size": 8,
+    "prompt_tokens": 128,
+    "decode_tokens": 128,
+    "cache_bytes": 922091520,
+    "max_batch_tokens": 4096,
+    "prefill_chunk_size": 4096,
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 40200896512,
+      "memory_size": 51539607552,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 30150672384,
+      "resource_limit": 499000
+    },
+    "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+    "capacity_only": false,
+    "trial": 2,
+    "prefill_seconds": 0.8159704999998212,
+    "decode_seconds": 4.008197207935154,
+    "prefill_tps": 1254.9473295912344,
+    "decode_tps": 255.47645160092296,
+    "peak_bytes": 22968157964,
+    "prefill_peak_bytes": 22968157964,
+    "decode_peak_bytes": 22555767224,
+    "decode_memory_before": {
+      "Pages occupied by compressor": 205822,
+      "Pageouts": 1863713,
+      "Swapins": 984737810,
+      "Swapouts": 1038154276
+    },
+    "active_bytes": 20431235608,
+    "generated_tokens": 1032,
+    "first_tokens": [
+      28445,
+      6107,
+      303,
+      11751,
+      13,
+      13853,
+      6107,
+      303
+    ],
+    "token_hashes": [
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2"
+    ],
+    "paging_before": {
+      "Pageouts": 1863713,
+      "Swapins": 984735923,
+      "Swapouts": 1038154276
+    },
+    "paging_after": {
+      "Pageouts": 1863719,
+      "Swapins": 984759629,
+      "Swapouts": 1038154276
+    },
+    "paging_delta": {
+      "Pageouts": 6,
+      "Swapins": 23706,
+      "Swapouts": 0
+    },
+    "accepted": true,
+    "command": [
+      "/Users/Nate/Projects/mlx-resin/.venv/bin/python3",
+      "/Users/Nate/Projects/mlx-resin/scripts/benchmark_qwen36_mlx.py",
+      "--backend",
+      "resin",
+      "--batch-size",
+      "8",
+      "--prompt-tokens",
+      "128",
+      "--runs",
+      "1",
+      "--decode-tokens",
+      "128"
+    ]
+  },
+  {
+    "backend": "resin",
+    "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+    "revision": "38740b847e4cb78f352aba30aa41c76e08e6eb46",
+    "quantization": "affine 4-bit, 8-bit routers, group_size=64",
+    "batch_size": 8,
+    "prompt_tokens": 128,
+    "decode_tokens": 128,
+    "cache_bytes": 922091520,
+    "max_batch_tokens": 4096,
+    "prefill_chunk_size": 4096,
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 40200896512,
+      "memory_size": 51539607552,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 30150672384,
+      "resource_limit": 499000
+    },
+    "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+    "capacity_only": false,
+    "trial": 3,
+    "prefill_seconds": 0.7833191249519587,
+    "decode_seconds": 3.911483791191131,
+    "prefill_tps": 1307.257754063904,
+    "decode_tps": 261.7932361898322,
+    "peak_bytes": 22968157964,
+    "prefill_peak_bytes": 22968157964,
+    "decode_peak_bytes": 22555767216,
+    "decode_memory_before": {
+      "Pages occupied by compressor": 231078,
+      "Pageouts": 1864151,
+      "Swapins": 984869320,
+      "Swapouts": 1038261840
+    },
+    "active_bytes": 20431235608,
+    "generated_tokens": 1032,
+    "first_tokens": [
+      28445,
+      6107,
+      303,
+      11751,
+      13,
+      13853,
+      6107,
+      303
+    ],
+    "token_hashes": [
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2"
+    ],
+    "paging_before": {
+      "Pageouts": 1864151,
+      "Swapins": 984866272,
+      "Swapouts": 1038261840
+    },
+    "paging_after": {
+      "Pageouts": 1864151,
+      "Swapins": 984876441,
+      "Swapouts": 1038261840
+    },
+    "paging_delta": {
+      "Pageouts": 0,
+      "Swapins": 10169,
+      "Swapouts": 0
+    },
+    "accepted": true,
+    "command": [
+      "/Users/Nate/Projects/mlx-resin/.venv/bin/python3",
+      "/Users/Nate/Projects/mlx-resin/scripts/benchmark_qwen36_mlx.py",
+      "--backend",
+      "resin",
+      "--batch-size",
+      "8",
+      "--prompt-tokens",
+      "128",
+      "--runs",
+      "1",
+      "--decode-tokens",
+      "128"
+    ]
+  },
+  {
+    "backend": "mlx-lm",
+    "model": "mlx-community/Qwen3.6-35B-A3B-4bit",
+    "revision": "38740b847e4cb78f352aba30aa41c76e08e6eb46",
+    "quantization": "affine 4-bit, 8-bit routers, group_size=64",
+    "batch_size": 8,
+    "prompt_tokens": 128,
+    "decode_tokens": 128,
+    "cache_bytes": null,
+    "max_batch_tokens": null,
+    "prefill_chunk_size": 2048,
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 40200896512,
+      "memory_size": 51539607552,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 30150672384,
+      "resource_limit": 499000
+    },
+    "method": "fresh-cache warmup then measured trials; stop disabled; prefill includes first token; decode excludes it",
+    "capacity_only": false,
+    "trial": 3,
+    "prefill_seconds": 0.48045937484130263,
+    "decode_seconds": 3.1200377501081675,
+    "prefill_tps": 2131.2936194412496,
+    "decode_tps": 328.2011571701334,
+    "peak_bytes": 21129743086,
+    "prefill_peak_bytes": 21129743086,
+    "decode_peak_bytes": 20225743146,
+    "decode_memory_before": {
+      "Pages occupied by compressor": 270468,
+      "Pageouts": 1864520,
+      "Swapins": 984905193,
+      "Swapouts": 1038263024
+    },
+    "active_bytes": 19508787466,
+    "generated_tokens": 1032,
+    "first_tokens": [
+      28445,
+      6107,
+      303,
+      11751,
+      13,
+      13853,
+      6107,
+      303
+    ],
+    "token_hashes": [
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2",
+      "1ffebd104b352f825ce7ec009ddfff016507763ce812a3dfa03dc6ef395128d2"
+    ],
+    "paging_before": {
+      "Pageouts": 1864520,
+      "Swapins": 984905125,
+      "Swapouts": 1038263024
+    },
+    "paging_after": {
+      "Pageouts": 1864520,
+      "Swapins": 984907243,
+      "Swapouts": 1038263024
+    },
+    "paging_delta": {
+      "Pageouts": 0,
+      "Swapins": 2118,
+      "Swapouts": 0
+    },
+    "accepted": true,
+    "command": [
+      "/Users/Nate/Projects/mlx-resin/.venv/bin/python3",
+      "/Users/Nate/Projects/mlx-resin/scripts/benchmark_qwen36_mlx.py",
+      "--backend",
+      "mlx-lm",
+      "--batch-size",
+      "8",
+      "--prompt-tokens",
+      "128",
+      "--runs",
+      "1",
+      "--decode-tokens",
+      "128"
+    ]
+  }
+]

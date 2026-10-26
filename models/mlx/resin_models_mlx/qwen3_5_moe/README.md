@@ -87,13 +87,14 @@ The 4096-token prefix test also passed. The chat command returned
 ## Benchmark commands
 
 ```sh
+uv run python scripts/benchmark_qwen36_mlx.py --matrix --decode-batches 1 8 --runs 3 --decode-tokens 128 --output local/resident-state/moe-matrix.jsonl
 MLX_ENABLE_TF32=0 uv run python scripts/benchmark_qwen36_mlx.py --matrix --runs 3 --decode-tokens 128 --output local/qwen36-benchmarks-final.jsonl
-MLX_ENABLE_TF32=0 uv run python scripts/benchmark_qwen36_mlx.py --backend resin --batch-size 32 --prompt-tokens 128 --decode-tokens 128 --runs 3
 ```
 
-The speed matrix uses 128-token prompts and 128 decoded tokens at batches 1, 8
-and 32, plus single-request 2048/4096-token prefills. It alternates fresh processes
-in A/B, B/A, A/B order. Each process loads one backend, warms once and measures a
+The resident-state matrix measures 128-token prompts and 128 decoded tokens at
+batches 1 and 8. Omitting `--decode-batches` also measures batch 32 and
+single-request 2048/4096-token prefills. Fresh processes alternate in
+A/B, B/A, A/B order. Each process loads one backend, warms once and measures a
 fresh-cache trial. Loading is excluded; prefill includes the first generated token.
 Decode excludes that first token. Prefix hits and EOS stopping are disabled, and the
 complete cohort must prefill before decode. Reported throughput is aggregate
@@ -107,28 +108,37 @@ are reported but do not, by themselves, reject a cell.
 
 ## M5 Pro measurements
 
-MLX 0.32.4, mlx-lm 0.32.2, 48 GB unified memory, pinned four-bit weights with BF16
-activations. Values are aggregate tokens/second, median (range). Three
-interleaved trials were attempted per cell; accepted counts below exclude trials
-with new swap-outs. The matrix uses the runner's default 4096-token step budget
-and checkpoint interval.
+Measured 2026-10-26: MLX 0.32.4, mlx-lm 0.32.2, 48 GB unified memory, pinned
+four-bit weights with BF16 activations. Values are aggregate tokens/second,
+median (range). The resident-state decode matrix has three interleaved trials
+per backend. The default 4096-token step budget and checkpoint interval are
+unchanged. Prefill rows below retain the earlier matrix's accepted trials.
 
 | Measurement | mlx-resin tok/s | mlx-lm tok/s | Accepted trials, Resin / mlx-lm |
 | --- | ---: | ---: | ---: |
-| Decode b1, 128-token prompt | 46.84 (46.54–47.53) | 74.93 (57.61–84.73) | 3 / 3 |
-| Decode b8, 128-token prompt | 165.49 (162.14–172.64) | 313.69 (296.03–317.06) | 3 / 3 |
-| Decode b32, 128-token prompt | Rejected: swapping | 401.05 (393.74–408.37) | 0 / 2 |
-| Prefill b1, 2048 tokens | 1842.49 (1812.52–1854.43) | 2054.78 (1976.76–2334.36) | 3 / 3 |
-| Prefill b1, 4096 tokens | 1790.21 (1788.06–1792.35) | 2374.13 (1981.00–2375.68) | 2 / 3 |
+| Decode b1, 128-token prompt | Not verified: unstable under load | Not verified: unstable under load | 3 / 3 |
+| Decode b8, 128-token prompt | 255.48 (222.03–261.79) | 326.69 (267.74–328.20) | 3 / 3 |
+| Decode b32, prior matrix | Rejected: swapping | Not requalified | 0 / 2 |
+| Prefill b1, 2048 tokens, prior matrix | 1842.49 (1812.52–1854.43) | 2054.78 (1976.76–2334.36) | 3 / 3 |
+| Prefill b1, 4096 tokens, prior matrix | 1790.21 (1788.06–1792.35) | 2374.13 (1981.00–2375.68) | 2 / 3 |
 
-Twenty-five of 30 trials had zero new swap-outs. All three Resin b32 trials,
-one mlx-lm b32 trial and one Resin 4k-prefill trial were rejected. A clean b32
-throughput comparison is therefore **not verified** under this Mac's concurrent
-workload; the rejected timings are not published as model throughput.
+All 12 current measured trials had zero new swap-outs and identical complete
+greedy-output hashes across backends. Batch 8 reaches 78% of mlx-lm, versus
+53% in the earlier matrix (165.49 / 313.69 tok/s). Those matrices were not
+interleaved with each other, so this is not an isolated causal speedup.
 
-Raw rows and exact subprocess commands are in `local/qwen36-benchmarks-final.jsonl`.
-The earlier unbounded 4k-context matrix is in `local/qwen36-benchmarks.jsonl`;
-its pressure-affected rows are not used above.
+Batch 1 is not qualified despite zero new swap-outs in its measured trials:
+repeats varied widely, and later comparisons stalled during warmup. A sampled
+warmup used 39.2% CPU while system counters rose by 25,089 swap-in and 38,208
+swap-out pages. It was thrashing, not idle. No rejected or incomplete trial is
+published as model throughput.
+
+The raw current and historical records, commands, hashes, and process sample
+are in [`artifacts/benchmarks/2026-10-26-mlx-resident/`](../../../../artifacts/benchmarks/2026-10-26-mlx-resident/).
+Local originals are `local/resident-state/moe-matrix.jsonl` and
+`local/qwen36-benchmarks-final.jsonl`. Measurements use `880b139`; the subsequent
+`90d1aa7` error-guard and initialization-memory fixes are correctness-tested,
+not separately throughput-qualified under this Mac's increased load.
 
 ## Memory capacity
 

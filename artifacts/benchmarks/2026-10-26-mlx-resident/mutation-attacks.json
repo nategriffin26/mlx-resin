@@ -1,0 +1,100 @@
+{
+  "method": "Replace only the named method in an isolated Python process using inspect.getsource, textwrap.dedent and exec; invoke pytest.main on models/mlx/tests/test_qwen35_resident.py with the selection. No repository source was mutated. The unguarded-flush mutant printed its two assertion failures, then exited with signal 11; the production gate passed.",
+  "attacks": [
+    {
+      "name": "missed-cohort-flush",
+      "setup": "from resin_models_mlx.qwen3_5.cache import DecodeState\nowner=DecodeState; name=\"prepare\"",
+      "replace": "self.flush()",
+      "with": "pass",
+      "pytest_selection": "cohort",
+      "result": "failed as intended",
+      "log": "mutations/missed-cohort-flush.log"
+    },
+    {
+      "name": "missed-publication-flush",
+      "setup": "from resin_models_mlx.qwen3_5.mlx import Qwen35MlxRunner\nowner=Qwen35MlxRunner; name=\"forward\"",
+      "replace": "boundary = resident_key is not None and np.any(",
+      "with": "boundary = False and np.any(",
+      "pytest_selection": "crosses or published",
+      "result": "failed as intended",
+      "log": "mutations/missed-publication-flush.log"
+    },
+    {
+      "name": "mixed-row-contamination",
+      "setup": "from resin_models_mlx.qwen3_5.cache import DeviceCache\nowner=DeviceCache; name=\"state\"",
+      "replace": "return convolution, recurrent, None",
+      "with": "return convolution[::-1], recurrent[::-1], None",
+      "pytest_selection": "crosses",
+      "result": "failed as intended",
+      "log": "mutations/mixed-row-contamination.log"
+    },
+    {
+      "name": "early-resident-publication",
+      "setup": "from resin_models_mlx.qwen3_5.cache import DeviceCache\nowner=DeviceCache; name=\"store\"",
+      "replace": "self.updated.append((convolution, recurrent))",
+      "with": "self.updated.append((convolution, recurrent))\n        if self.resident is not None:\n            self.resident[layer] = (convolution, recurrent)",
+      "pytest_selection": "failed and 125",
+      "result": "failed as intended",
+      "log": "mutations/early-resident-publication.log"
+    },
+    {
+      "name": "missing-arena-rollback",
+      "setup": "from resin.backend.mlx import SlabArena\nowner=SlabArena; name=\"abort\"",
+      "replace": "self._writes.clear()",
+      "with": "return",
+      "pytest_selection": "failed",
+      "result": "failed as intended",
+      "log": "mutations/missing-arena-rollback.log"
+    },
+    {
+      "name": "missing-release-flush",
+      "setup": "from resin_models_mlx.qwen3_5.mlx import Qwen35MlxRunner\nowner=Qwen35MlxRunner; name=\"release\"",
+      "replace": "self._decode_state.flush()",
+      "with": "pass",
+      "pytest_selection": "cohort",
+      "result": "failed as intended",
+      "log": "mutations/missing-release-flush.log"
+    },
+    {
+      "name": "missing-read-barriers",
+      "setup": "from resin.backend.mlx import SlabArena\nowner=SlabArena; name=\"read_storage\"",
+      "replace": "self.write_back.flush()",
+      "with": "pass",
+      "pytest_selection": "read_barrier and state_layer",
+      "result": "failed as intended",
+      "log": "mutations/missing-read-barriers.log"
+    },
+    {
+      "name": "unguarded-cohort-flush",
+      "setup": "from resin_models_mlx.qwen3_5.mlx import Qwen35MlxRunner\nowner=Qwen35MlxRunner; name=\"forward\"",
+      "replace": "try:\n        resident_key = self._decode_state.prepare(cache_plan)",
+      "with": "resident_key = self._decode_state.prepare(cache_plan)\n    try:",
+      "pytest_selection": "flush_failure",
+      "result": "failed as intended",
+      "log": "mutations/unguarded-cohort-flush.log"
+    },
+    {
+      "name": "full-fresh-block-backup",
+      "setup": "from resin_models_mlx.qwen3_5.mlx import Qwen35MlxRunner\nowner=Qwen35MlxRunner; name=\"forward\"",
+      "replace": "defer_fresh=True",
+      "with": "defer_fresh=False",
+      "pytest_selection": "rollback_does_not_copy",
+      "result": "failed as intended",
+      "log": "mutations/full-fresh-block-backup.log"
+    },
+    {
+      "name": "missing-public-storage-barrier",
+      "setup": "SlabArena.storage = property(lambda self: self._storage, SlabArena.storage.fset)",
+      "pytest_selection": "read_barrier and storage",
+      "result": "2 failed as intended",
+      "log": "mutations/missing-public-storage-barrier.log"
+    },
+    {
+      "name": "missing-null-rollback",
+      "setup": "SlabArena.abort = lambda self: None",
+      "pytest_selection": "failed and 17",
+      "result": "2 failed as intended",
+      "log": "mutations/missing-null-rollback.log"
+    }
+  ]
+}

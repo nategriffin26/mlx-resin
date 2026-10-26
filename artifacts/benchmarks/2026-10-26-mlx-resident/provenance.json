@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-26",
+  "source_commit": "880b139",
+  "baseline_source_commit": "a2e5dd7",
+  "profile_before": "uv run python scripts/benchmark_qwen35_mlx.py --backend resin --batch-size 64 --decode-tokens 4 --runs 1 --profile-operations",
+  "dense_matrix": "uv run python scripts/benchmark_mlx_matrix.py --models qwen35 --high-concurrency --output-dir local/resident-state/dense-matrix",
+  "moe_matrix": "uv run python scripts/benchmark_qwen36_mlx.py --matrix --decode-batches 1 8 --runs 3 --decode-tokens 128 --output local/resident-state/moe-matrix.jsonl",
+  "baseline_dense_artifacts": "local/highbatch-final-v2/",
+  "baseline_moe_artifact": "local/qwen36-benchmarks-final.jsonl",
+  "acceptance": "Reject every measured trial with new system swapouts; require three accepted trials and exact greedy hashes across both backends for a three-run throughput claim. Historical baseline medians are not a controlled speedup experiment.",
+  "post_measurement_fix_commit": "90d1aa7",
+  "post_fix_throughput_remeasured": false,
+  "qualification": {
+    "dense_b1": "3 clean pairs",
+    "dense_b8": "3 clean pairs",
+    "dense_b32": "1 Resin / 3 mlx-lm swap-free trials; no current Resin median qualified",
+    "dense_b64": "0 Resin / 2 mlx-lm swap-free trials; not qualified",
+    "moe_b1": "3 swap-free pairs but unstable; later warmups thrashed; not qualified",
+    "moe_b8": "3 clean pairs"
+  },
+  "post_fix_gates": {
+    "default": {
+      "passed": 207,
+      "deselected": 3,
+      "seconds": 124.53
+    },
+    "checkpoint": {
+      "passed": 3,
+      "deselected": 124,
+      "seconds": 1115.86
+    },
+    "ruff": "passed",
+    "resident_tests": {
+      "passed": 22,
+      "seconds": 1.86
+    }
+  },
+  "warmup_diagnostic": {
+    "cpu_percent": 39.2,
+    "physical_footprint_reported": "19.2G",
+    "swapin_pages_delta": 25089,
+    "swapout_pages_delta": 38208,
+    "page_bytes": 16384,
+    "classification": "memory thrashing; not idle"
+  },
+  "review": {
+    "verdict": "ship after guarding cohort preparation",
+    "fix_commit": "90d1aa7",
+    "scope": "physical cohort identity, release/publication ordering, read barriers, rollback"
+  }
+}

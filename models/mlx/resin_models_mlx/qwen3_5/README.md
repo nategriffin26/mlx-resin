@@ -94,7 +94,7 @@ BF16 execution against it on identical 17-, 129-, and 257-token prompts.
 ## M5 Pro measurements
 
 Measured at `aa1a6eb`; the current matrix, after later cache changes, is in
-[docs/benchmarks.md](../../../../docs/benchmarks.md#final-matrix-and-stopping-point).
+[docs/benchmarks.md](../../../../docs/benchmarks.md#cohort-resident-decode-2026-10-26).
 MLX 0.32.4, mlx-lm 0.32.2, unquantized BF16, 48 GB unified memory. Values are
 three-run medians with observed ranges. Decode measures 64 tokens after the first
 output; the b1/b8 decode prompts have 128 tokens. No prefix hits or stop tokens.

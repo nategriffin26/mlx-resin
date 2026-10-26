@@ -345,7 +345,7 @@ swapins, and separate decode-phase counters remain in each raw record.
 128-token-prompt capacity probe also failed to finish within 180 seconds;
 no batch-128 throughput is claimed.
 
-### Final matrix and stopping point
+### Prior matrix: direct arena reads
 
 Three-run medians (minimum–maximum), tokens/s, on the same M5 Pro and pinned
 BF16 checkpoint. Decode uses 128 prompt tokens and 128 measured decode tokens
@@ -368,16 +368,106 @@ additional pre-entry-release A/B processes at batch 64. System-wide swapins
 and occasional pageouts still occurred; zero swapouts is not a claim that the
 whole Mac performed no paging.
 
-Throughput now rises from batch 8 through batch 64 instead of collapsing.
-The direct-read change's controlled improvement is the 15%/37% at batches
-8/32 above, not a comparison against the earlier pressure-contaminated 58 tok/s
-batch-64 result. The remaining gap is substantial: at batch 64 Resin reaches
-40% of mlx-lm's throughput. State packing, concatenation/scatter, and dense
-MLP execution remain the largest measured costs. Removing the next full-state
-copy requires a write path that preserves MLX buffer ownership and Engine
-leases; mutating an input buffer or relaxing the recurrence precision is not
-an acceptable shortcut. This iteration stops at the two measured changes,
-with batch-128 capacity unproven.
+This iteration made throughput rise through batch 64, reaching 40% of mlx-lm at
+that batch. Its remaining state packing and scatter costs motivated the
+write-back implementation below. These are historical measurements, not the
+current implementation's high-batch qualification.
+
+## Cohort-resident decode (2026-10-26)
+
+Both Qwen runners now retain batch-contiguous FP32 recurrent state while the
+physical decode cohort is unchanged. The [ownership and design decision](cache-pool.md#qwen-decode-write-back)
+explains why this beat per-block STATE arrays and fused output packing.
+Rust, checkpoint geometry, greedy equality, and numerical tolerances are unchanged.
+
+### Qualified matrix
+
+Same M5 Pro, checkpoints, precisions, 128-token prompts and 128 measured decode
+tokens as above. Each cell alternates fresh Resin/mlx-lm processes three times,
+with an untimed warmup. Every row's complete greedy output matched between
+backends and trials: 81,282 generated tokens in the dense matrix and 6,966 in the
+MoE matrix. Six of 36 dense trials had new system swap-outs and are rejected;
+all 12 MoE measured trials had zero new swap-outs.
+
+Median (minimum–maximum), aggregate tokens/s. A current decode comparison needs
+three clean trials per backend. Counts show swap-free trials, not a claim that
+the rest of the Mac was idle.
+
+| Workload | mlx-resin | mlx-lm | Clean trials, Resin / mlx-lm |
+| --- | ---: | ---: | ---: |
+| Qwen3.5-4B decode b1 | 27.25 (25.89–27.31) | 29.86 (28.94–29.90) | 3 / 3 |
+| Qwen3.5-4B decode b8 | 188.61 (182.56–190.51) | 210.63 (205.76–212.13) | 3 / 3 |
+| Qwen3.5-4B decode b32 | Not verified: swapping | 631.19 (621.04–637.50) | 1 / 3 |
+| Qwen3.5-4B decode b64 | Not verified: swapping | Not verified: swapping | 0 / 2 |
+| Qwen3.5-4B prefill 2048 | 1930.13 (1595.90–1946.02) | 2609.12 (2249.42–2611.97) | 3 / 3 |
+| Qwen3.5-4B prefill 4096 | 2055.65 (2007.20–2094.55) | 2775.96 (2764.08–2794.07) | 3 / 3 |
+| Qwen3.6-35B-A3B decode b1 | Not verified: unstable under load | Not verified: unstable under load | 3 / 3 |
+| Qwen3.6-35B-A3B decode b8 | 255.48 (222.03–261.79) | 326.69 (267.74–328.20) | 3 / 3 |
+
+MoE b1's zero-swapout trials still varied widely; subsequent controlled
+arena/resident comparisons stalled in warmup. A single process sample found
+39.2% CPU and a reported `19.2G` physical footprint. Across that sample window,
+system counters increased by 25,089 swap-in pages and 38,208 swap-out pages
+(411 MB in, 626 MB out). The stack was evaluating MLX arrays, not waiting on a
+download. This is evidence of memory thrashing, not a qualified steady-state
+throughput result. Other work was left running.
+
+### Before and after
+
+These earlier and later matrices were not interleaved with each other; the
+mlx-lm rerun also changed. They show the measured end state, **not a controlled
+percentage speedup attributable solely to write-back**.
+
+| Decode workload | Prior Resin / mlx-lm | Resident Resin / mlx-lm | Prior → current ratio |
+| --- | ---: | ---: | ---: |
+| Qwen3.5 b1 | 24.52 / 29.29 | 27.25 / 29.86 | 84% → 91% |
+| Qwen3.5 b8 | 127.22 / 185.23 | 188.61 / 210.63 | 69% → 90% |
+| Qwen3.5 b32 | 291.97 / 592.91 | Not verified | 49% → — |
+| Qwen3.5 b64 | 359.67 / 901.48 | Not verified | 40% → — |
+| Qwen3.6 b1 | 46.84 / 74.93 | Not verified | 63% → — |
+| Qwen3.6 b8 | 165.49 / 313.69 | 255.48 / 326.69 | 53% → 78% |
+
+```bash
+uv run python scripts/benchmark_qwen35_mlx.py --backend resin --batch-size 64 --decode-tokens 4 --runs 1 --profile-operations
+uv run python scripts/benchmark_mlx_matrix.py --models qwen35 --high-concurrency --output-dir local/resident-state/dense-matrix
+uv run python scripts/benchmark_qwen36_mlx.py --matrix --decode-batches 1 8 --runs 3 --decode-tokens 128 --output local/resident-state/moe-matrix.jsonl
+```
+
+Commands, all accepted and rejected trials, full-row digests, profiles, historical
+baselines, failure attacks and the process sample are committed in
+[`artifacts/benchmarks/2026-10-26-mlx-resident/`](../artifacts/benchmarks/2026-10-26-mlx-resident/).
+The full local records remain under `local/resident-state/`. The matrix measured
+`880b139`; `90d1aa7` subsequently guarded flush failures and removed cohort-sized
+initialization backups by deferring unread fresh-page clearing. The latter
+change is correctness-tested, not a new throughput measurement.
+
+### Correctness and stopping point
+
+The native-Engine tests compare resident decode against flushing every step for
+both dense and MoE runners. They cover arrivals, completion, cancellation,
+shutdown, a prefix published while its generating cohort is alive, 128-token KV
+and 4096-token STATE crossings, mixed steered/plain rows, and failed forwards.
+They also check public arena read barriers and failed-flush quarantine.
+In-memory mutations removed each flush/rollback guard, permuted resident rows,
+published state early, or restored full fresh-block backups; the corresponding
+tests failed before the unmodified implementation passed.
+
+Post-fix release gates at `90d1aa7` passed: **207 tests in 124.53 s** by default,
+**3 checkpoint tests in 1115.86 s**, and `uv run ruff check .`. The targeted
+resident suite passed **22 tests in 1.86 s** after the failure attacks. These
+final full gates took much longer under memory pressure; the earlier default
+run took 19.13 s. No check or tolerance was weakened. Exact commands and output
+are in the committed `release-gates.log` and `resident-tests.log`.
+
+The required before/after b64 synchronized profiles both swapped. They confirm
+the structural change—state gathers fell from 96 to 24 over four decode steps,
+and stable steps no longer pack/scatter recurrent state—but their timings cannot
+quantify the remaining steady-state gap. Dense MLPs, FP32 recurrence, attention
+and occasional visibility flushes remain; their relative cost under a quiet
+memory budget is not requalified here. No further kernel or Engine change is
+justified by these contaminated profiles. High-batch qualification and a stable
+MoE b1 comparison need a quieter memory window, not relaxed precision or a
+weaker swap-out rule.
 
 ## Run a sweep
 

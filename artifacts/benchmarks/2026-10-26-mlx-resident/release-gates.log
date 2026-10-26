@@ -1,0 +1,12 @@
+Source: 90d1aa7, observed background job bg_272 on 2026-10-26.
+
+$ HF_HUB_OFFLINE=1 uv run pytest tests/test_engine.py tests/test_scheduler.py models/torch models/mlx -q
+207 passed, 3 deselected in 124.53s (0:02:04)
+
+$ HF_HUB_OFFLINE=1 uv run pytest models/mlx/tests -m checkpoint -q
+3 passed, 124 deselected in 1115.86s (0:18:35)
+
+$ uv run ruff check .
+All checks passed!
+
+Combined command wall time: 1249.68 seconds. Both pytest gates and ruff exited successfully. The loaded Mac made this final run much slower than the earlier 207-test default gate (19.13 seconds); no tolerance or assertion changed.

@@ -1,0 +1,120 @@
+FF..                                                                     [100%]
+=================================== FAILURES ===================================
+_________ test_resident_cohort_join_finish_cancel_and_shutdown[dense] __________
+
+model_factory = <function model_factory.<locals>.create at 0x1181f20c0>
+
+    def test_resident_cohort_join_finish_cancel_and_shutdown(model_factory):
+        def execute(flush):
+            model = model_factory(flush)
+            with Engine(model, prefix_cache=False) as engine:
+                requests = [submit(engine, prompt(17, i), n) for i, n in enumerate((6, 14, 14))]
+                engine.step()
+                engine.step()
+                assert flush or model._decode_state.layers is not None
+                requests.append(submit(engine, prompt(19, 5), 8))
+                engine.step()
+                engine.step()
+                assert engine.cancel(requests[2])
+                assert model._decode_state.layers is None
+                while not requests[0].done:
+                    engine.step()
+                while engine.has_work():
+                    engine.step()
+                tokens = [request.take_result() for request in requests]
+                live = submit(engine, prompt(21, 7), 20)
+                engine.step()
+                engine.step()
+                assert not live.done
+            assert model._decode_state.layers is None
+            assert not model.arena._writes
+            return tokens, model.observed
+    
+>       actual, observed = execute(False)
+                           ^^^^^^^^^^^^^^
+
+models/mlx/tests/test_qwen35_resident.py:99: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+flush = False
+
+    def execute(flush):
+        model = model_factory(flush)
+        with Engine(model, prefix_cache=False) as engine:
+            requests = [submit(engine, prompt(17, i), n) for i, n in enumerate((6, 14, 14))]
+            engine.step()
+            engine.step()
+            assert flush or model._decode_state.layers is not None
+            requests.append(submit(engine, prompt(19, 5), 8))
+            engine.step()
+            engine.step()
+            assert engine.cancel(requests[2])
+>           assert model._decode_state.layers is None
+E           assert [(array([[[0.0644521, -0.00119081, 0.0910043, ..., -0.0716158, 0.0875902, 0.036691],\n        [0.0644521, -0.00119081, ...,\n         [1.70497e-05, 0.000111041, -6.03402e-05, ..., -0.000223643, -0.000174664, -0.000204817]]]], dtype=float32))] is None
+E            +  where [(array([[[0.0644521, -0.00119081, 0.0910043, ..., -0.0716158, 0.0875902, 0.036691],\n        [0.0644521, -0.00119081, ...,\n         [1.70497e-05, 0.000111041, -6.03402e-05, ..., -0.000223643, -0.000174664, -0.000204817]]]], dtype=float32))] = <resin_models_mlx.qwen3_5.cache.DecodeState object at 0x11815f4d0>.layers
+E            +    where <resin_models_mlx.qwen3_5.cache.DecodeState object at 0x11815f4d0> = <resin_models_mlx.qwen3_5.mlx.Qwen35MlxRunner object at 0x11815ecf0>._decode_state
+
+models/mlx/tests/test_qwen35_resident.py:85: AssertionError
+---------------------------- Captured stderr setup -----------------------------
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+__________ test_resident_cohort_join_finish_cancel_and_shutdown[moe] ___________
+
+model_factory = <function model_factory.<locals>.create at 0x11824cea0>
+
+    def test_resident_cohort_join_finish_cancel_and_shutdown(model_factory):
+        def execute(flush):
+            model = model_factory(flush)
+            with Engine(model, prefix_cache=False) as engine:
+                requests = [submit(engine, prompt(17, i), n) for i, n in enumerate((6, 14, 14))]
+                engine.step()
+                engine.step()
+                assert flush or model._decode_state.layers is not None
+                requests.append(submit(engine, prompt(19, 5), 8))
+                engine.step()
+                engine.step()
+                assert engine.cancel(requests[2])
+                assert model._decode_state.layers is None
+                while not requests[0].done:
+                    engine.step()
+                while engine.has_work():
+                    engine.step()
+                tokens = [request.take_result() for request in requests]
+                live = submit(engine, prompt(21, 7), 20)
+                engine.step()
+                engine.step()
+                assert not live.done
+            assert model._decode_state.layers is None
+            assert not model.arena._writes
+            return tokens, model.observed
+    
+>       actual, observed = execute(False)
+                           ^^^^^^^^^^^^^^
+
+models/mlx/tests/test_qwen35_resident.py:99: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+flush = False
+
+    def execute(flush):
+        model = model_factory(flush)
+        with Engine(model, prefix_cache=False) as engine:
+            requests = [submit(engine, prompt(17, i), n) for i, n in enumerate((6, 14, 14))]
+            engine.step()
+            engine.step()
+            assert flush or model._decode_state.layers is not None
+            requests.append(submit(engine, prompt(19, 5), 8))
+            engine.step()
+            engine.step()
+            assert engine.cancel(requests[2])
+>           assert model._decode_state.layers is None
+E           assert [(array([[[0.183951, -0.00243712, 0.276876, ..., 0.061303, 0.0265487, -0.0715607],\n        [0.183951, -0.00243712, 0.2...],\n         [0.000453248, 0.000318179, -9.58209e-05, ..., 8.16182e-05, -0.000290872, -0.000884321]]]], dtype=float32))] is None
+E            +  where [(array([[[0.183951, -0.00243712, 0.276876, ..., 0.061303, 0.0265487, -0.0715607],\n        [0.183951, -0.00243712, 0.2...],\n         [0.000453248, 0.000318179, -9.58209e-05, ..., 8.16182e-05, -0.000290872, -0.000884321]]]], dtype=float32))] = <resin_models_mlx.qwen3_5.cache.DecodeState object at 0x11938dbd0>.layers
+E            +    where <resin_models_mlx.qwen3_5.cache.DecodeState object at 0x11938dbd0> = <resin_models_mlx.qwen3_5_moe.mlx.Qwen35MoeMlxRunner object at 0x118269940>._decode_state
+
+models/mlx/tests/test_qwen35_resident.py:85: AssertionError
+=========================== short test summary info ============================
+FAILED models/mlx/tests/test_qwen35_resident.py::test_resident_cohort_join_finish_cancel_and_shutdown[dense]
+FAILED models/mlx/tests/test_qwen35_resident.py::test_resident_cohort_join_finish_cancel_and_shutdown[moe]
+2 failed, 2 passed, 8 deselected in 1.20s
+warning: The `extra-build-dependencies` option is experimental and may change without warning. Pass `--preview-features extra-build-dependencies` to disable this warning.

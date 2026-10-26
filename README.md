@@ -42,7 +42,7 @@ uv run python scripts/qwen35_neuron_sweep.py sweep --stats stats/q35-4b_L22.npz 
 | [Qwen3.6 MoE](models/mlx/resin_models_mlx/qwen3_5_moe/README.md) | `mlx-community/Qwen3.6-35B-A3B-4bit` | mlx-lm on the same packed weights: 12 of 12 greedy tokens |
 
 Each runner uses the Engine's paged cache, prefix reuse and batching; none keeps a
-private cache. Both Qwen runners take per-request neuron steering, so a steered
+request-keyed cache. Both Qwen runners take per-request neuron steering, so a steered
 request and a plain one can share a decode batch
 ([steering contract](docs/steering.md)).
 
@@ -68,7 +68,7 @@ flowchart TB
     engine -- "frozen BatchPlan<br/>page tables, media" --> stage
     subgraph runner["MLX runner"]
         stage["Stage page tables"] --> forward["Forward pass<br/>Metal paged attention, neuron additions"]
-        forward --> commit["One commit<br/>single scatter into the arena"]
+        forward --> commit["Commit KV pages<br/>publish recurrent state"]
     end
     commit -- "sampled token IDs" --> engine
     engine --> tokens["Tokens"]
@@ -77,12 +77,11 @@ flowchart TB
 The Engine decides which slab holds each page and never touches the data. The MLX
 backend keeps one byte arena shaped `[slab, byte]`, addressed with 64-bit offsets,
 so BF16 attention history and FP32 recurrent state share the same slabs
-([cache pool](docs/cache-pool.md)). The forward pass reads from the arena and
-queues its writes; they land in one scatter after the outputs evaluate, so the
-cache changes only when a whole forward succeeds. Decode attention reads pages
-through custom Metal kernels. They compile once: three kernel libraries, the same
-three across five tested batch and context shapes
-([benchmarks](docs/benchmarks.md#profiling-and-stopping-point)).
+([cache pool](docs/cache-pool.md)). Stable Qwen decode keeps recurrent state
+batch-contiguous, keyed by the Engine's physical blocks. It flushes to the arena
+before cohort changes, page boundaries, prefix publication or block retirement.
+Outputs evaluate before new state becomes visible. Decode attention reads pages
+through custom Metal kernels; neither attention nor recurrence mutates an input.
 
 Steering rides the Engine's existing `media` channel. A steering payload salts up
 to the first eight cache-key words of its prompt, so steered and plain requests
@@ -120,50 +119,54 @@ hence `--prefix-cache-repeats 1100`.
 
 Apple M5 Pro, 48 GB, MLX 0.32.4, mlx-lm 0.32.2, measured 2026-10-26. Both sides
 load the same checkpoint at the same precision, decode greedily with no prefix hits
-or early stopping, and run in alternating fresh processes. Values are three-run
-medians of aggregate tokens per second; ranges and raw records are in the linked
-docs.
+or early stopping, and run in alternating fresh processes. Values are aggregate
+tokens per second; qualified decode rows have three clean trials per backend.
+Ranges, accepted counts and raw records are in the linked docs.
 
-mlx-resin trails mlx-lm in every row, at 40% to 90% of its throughput.
+Qualified resident-decode rows reach **78%–91%** of mlx-lm's throughput.
+Memory pressure prevented a current high-batch qualification.
 
-[Qwen3.5-4B](docs/benchmarks.md#final-matrix-and-stopping-point), BF16, 128-token
+[Qwen3.5-4B](docs/benchmarks.md#cohort-resident-decode-2026-10-26), BF16, 128-token
 prompts for decode:
 
 | Workload | mlx-resin | mlx-lm | mlx-resin / mlx-lm |
 | --- | ---: | ---: | ---: |
-| Decode, batch 1 | 24.52 | 29.29 | 84% |
-| Decode, batch 8 | 127.22 | 185.23 | 69% |
-| Decode, batch 32 | 291.97 | 592.91 | 49% |
-| Decode, batch 64 | 359.67 | 901.48 | 40% |
-| Prefill, 2048 tokens | 2045.00 | 2456.68 | 83% |
-| Prefill, 4096 tokens | 1988.63 | 2589.02 | 77% |
+| Decode, batch 1 | 27.25 | 29.86 | 91% |
+| Decode, batch 8 | 188.61 | 210.63 | 90% |
+| Decode, batch 32 | not verified | 631.19 | — |
+| Decode, batch 64 | not verified | not verified | — |
+| Prefill, 2048 tokens | 1930.13 | 2609.12 | 74% |
+| Prefill, 4096 tokens | 2055.65 | 2775.96 | 74% |
 
 [Qwen3.6-35B-A3B](models/mlx/resin_models_mlx/qwen3_5_moe/README.md#m5-pro-measurements),
 4-bit weights, BF16 activations:
 
 | Workload | mlx-resin | mlx-lm | mlx-resin / mlx-lm |
 | --- | ---: | ---: | ---: |
-| Decode, batch 1 | 46.84 | 74.93 | 63% |
-| Decode, batch 8 | 165.49 | 313.69 | 53% |
-| Decode, batch 32 | not verified | 401.05 | — |
-| Prefill, 2048 tokens | 1842.49 | 2054.78 | 90% |
-| Prefill, 4096 tokens | 1790.21 | 2374.13 | 75% |
+| Decode, batch 1 | not verified | not verified | — |
+| Decode, batch 8 | 255.48 | 326.69 | 78% |
+| Decode, batch 32 | not verified | not verified | — |
+| Prefill, 2048 tokens, prior matrix | 1842.49 | 2054.78 | 90% |
+| Prefill, 4096 tokens, prior matrix | 1790.21 | 2374.13 | 75% |
 
 ```sh
-uv run python scripts/benchmark_mlx_matrix.py --models qwen35 --high-concurrency --output-dir local/highbatch-final-v2
-MLX_ENABLE_TF32=0 uv run python scripts/benchmark_qwen36_mlx.py --matrix --runs 3 --decode-tokens 128 --output local/qwen36-benchmarks-final.jsonl
+uv run python scripts/benchmark_mlx_matrix.py --models qwen35 --high-concurrency --output-dir local/resident-state/dense-matrix
+uv run python scripts/benchmark_qwen36_mlx.py --matrix --decode-batches 1 8 --runs 3 --decode-tokens 128 --output local/resident-state/moe-matrix.jsonl
 ```
 
-At batch 64, a synchronized profile puts the remaining gap in recurrent-state
-packing, the concatenate-and-scatter commit and the dense MLP; the Engine and the
-sampler are not the bottleneck.
+Stable decode no longer packs and scatters the full recurrent state every step.
+The [new measurements and historical baselines](docs/benchmarks.md#before-and-after)
+are not a controlled percentage speedup: the machine's other workload changed.
+The latest b64 profiles swapped, so they do not justify another optimization.
 
 Not proven:
 
-- **Qwen3.6 at batch 32.** All three mlx-resin trials swapped on this Mac, where
-  other work holds 15–18 GB, so no number is published. 32 requests with
-  4096-token contexts did complete prefill and a decode step, peaking at 32.20 GB
-  of MLX allocation, but that run swapped too.
+- **Qwen3.5 at batches 32/64.** Only 1/0 of three Resin trials were swap-free;
+  the corresponding mlx-lm counts were 3/2.
+- **Qwen3.6 at batch 1.** Repeats varied widely; a later warmup sample showed
+  active CPU work and rising swap-in/out counters, not an idle hang.
+- **Qwen3.6 at batch 32.** Its earlier three Resin trials swapped. A 4096-token
+  context capacity run completed, but did not establish swap-free throughput.
 - **Qwen3.5-4B at batch 128.** The cohort did not finish within 180 seconds.
 - **LFM2.** Its [last clean comparison](docs/benchmarks.md#apple-silicon-lfm2-slices-12)
   predates the move from 128-token to 2048-token prefill chunks, which raised

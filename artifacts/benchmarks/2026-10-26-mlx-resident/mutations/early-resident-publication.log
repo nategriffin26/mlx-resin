@@ -1,0 +1,116 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_____ test_failed_forward_preserves_arena_and_resident_state[dense-125-2] ______
+
+model_factory = <function model_factory.<locals>.create at 0x118c09ee0>
+length = 125, steps = 2
+
+    @pytest.mark.parametrize("length,steps", [(125, 2), (128, 1)])
+    def test_failed_forward_preserves_arena_and_resident_state(model_factory, length, steps):
+        model = model_factory()
+        engine = Engine(model, prefix_cache=False)
+        submit(engine, prompt(length), 10)
+        for _ in range(steps):
+            engine.step()
+        # Dirty padding makes a failed fresh-page clear observable, not a zero-to-zero write.
+        if length == 128:
+            model.arena.storage = mx.ones_like(model.arena.storage)
+        mx.eval(model.arena.storage)
+        before = np.array(model.arena.storage)
+        layers = model._decode_state.layers
+        values = None if layers is None else [tuple(np.array(x) for x in pair) for pair in layers]
+    
+        def fail(logits, plan):
+            mx.eval(logits)
+            raise RuntimeError("injected sampler failure after model execution")
+    
+        model._sampler = fail
+        with pytest.raises(RuntimeError, match="injected sampler failure"):
+            engine.step()
+        np.testing.assert_array_equal(np.array(model.arena.storage), before)
+        assert model._decode_state.layers is layers
+        if values is not None:
+            for current, previous in zip(layers, values, strict=True):
+                for left, right in zip(current, previous, strict=True):
+>                   np.testing.assert_array_equal(np.array(left), right)
+E                   AssertionError: 
+E                   Arrays are not equal
+E                   
+E                   Mismatched elements: 465 / 768 (60.5%)
+E                   First 5 mismatches are at indices:
+E                    [0, 0, 0]: -0.30032724142074585 (ACTUAL), -0.04257505387067795 (DESIRED)
+E                    [0, 0, 1]: 0.12339114397764206 (ACTUAL), -0.14923280477523804 (DESIRED)
+E                    [0, 0, 2]: 0.15339870750904083 (ACTUAL), -0.03433343395590782 (DESIRED)
+E                    [0, 0, 3]: 0.036064308136701584 (ACTUAL), -0.11639213562011719 (DESIRED)
+E                    [0, 0, 4]: 0.10536401718854904 (ACTUAL), -0.11760323494672775 (DESIRED)
+E                   Max absolute difference among violations: 0.86140466
+E                   Max relative difference among violations: 254.98027
+E                    ACTUAL: array([[[-0.300327,  0.123391,  0.153399,  0.036064,  0.105364,
+E                            -0.037426,  0.168544,  0.297454, -0.25721 ,  0.186512,
+E                            -0.271205, -0.0589  ,  0.023289, -0.086314,  0.195178,...
+E                    DESIRED: array([[[-4.257505e-02, -1.492328e-01, -3.433343e-02, -1.163921e-01,
+E                            -1.176032e-01, -1.074721e-01, -4.261859e-03, -1.029910e-01,
+E                            -1.411407e-01, -1.457773e-01,  8.595550e-02, -1.262477e-02,...
+
+models/mlx/tests/test_qwen35_resident.py:188: AssertionError
+---------------------------- Captured stderr setup -----------------------------
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+______ test_failed_forward_preserves_arena_and_resident_state[moe-125-2] _______
+
+model_factory = <function model_factory.<locals>.create at 0x119dbede0>
+length = 125, steps = 2
+
+    @pytest.mark.parametrize("length,steps", [(125, 2), (128, 1)])
+    def test_failed_forward_preserves_arena_and_resident_state(model_factory, length, steps):
+        model = model_factory()
+        engine = Engine(model, prefix_cache=False)
+        submit(engine, prompt(length), 10)
+        for _ in range(steps):
+            engine.step()
+        # Dirty padding makes a failed fresh-page clear observable, not a zero-to-zero write.
+        if length == 128:
+            model.arena.storage = mx.ones_like(model.arena.storage)
+        mx.eval(model.arena.storage)
+        before = np.array(model.arena.storage)
+        layers = model._decode_state.layers
+        values = None if layers is None else [tuple(np.array(x) for x in pair) for pair in layers]
+    
+        def fail(logits, plan):
+            mx.eval(logits)
+            raise RuntimeError("injected sampler failure after model execution")
+    
+        model._sampler = fail
+        with pytest.raises(RuntimeError, match="injected sampler failure"):
+            engine.step()
+        np.testing.assert_array_equal(np.array(model.arena.storage), before)
+        assert model._decode_state.layers is layers
+        if values is not None:
+            for current, previous in zip(layers, values, strict=True):
+                for left, right in zip(current, previous, strict=True):
+>                   np.testing.assert_array_equal(np.array(left), right)
+E                   AssertionError: 
+E                   Arrays are not equal
+E                   
+E                   Mismatched elements: 468 / 768 (60.9%)
+E                   First 5 mismatches are at indices:
+E                    [0, 0, 0]: 0.00833168625831604 (ACTUAL), 0.1258791983127594 (DESIRED)
+E                    [0, 0, 1]: -0.09284602105617523 (ACTUAL), 0.3190232813358307 (DESIRED)
+E                    [0, 0, 2]: -0.07963448762893677 (ACTUAL), -0.14500665664672852 (DESIRED)
+E                    [0, 0, 3]: 0.10886621475219727 (ACTUAL), 0.14034037292003632 (DESIRED)
+E                    [0, 0, 4]: 0.23688146471977234 (ACTUAL), 0.17919519543647766 (DESIRED)
+E                   Max absolute difference among violations: 0.58024985
+E                   Max relative difference among violations: 113.40273
+E                    ACTUAL: array([[[ 0.008332, -0.092846, -0.079634,  0.108866,  0.236881,
+E                             0.028184, -0.324948, -0.121564,  0.126256,  0.012468,
+E                            -0.166099,  0.193607,  0.167847,  0.281874, -0.129768,...
+E                    DESIRED: array([[[ 0.125879,  0.319023, -0.145007,  0.14034 ,  0.179195,
+E                             0.326493,  0.16249 ,  0.113863,  0.031084,  0.109963,
+E                            -0.315509,  0.070591, -0.312296, -0.246032, -0.043425,...
+
+models/mlx/tests/test_qwen35_resident.py:188: AssertionError
+=========================== short test summary info ============================
+FAILED models/mlx/tests/test_qwen35_resident.py::test_failed_forward_preserves_arena_and_resident_state[dense-125-2]
+FAILED models/mlx/tests/test_qwen35_resident.py::test_failed_forward_preserves_arena_and_resident_state[moe-125-2]
+2 failed, 10 deselected in 1.08s
+warning: The `extra-build-dependencies` option is experimental and may change without warning. Pass `--preview-features extra-build-dependencies` to disable this warning.
