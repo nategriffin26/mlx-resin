@@ -251,14 +251,26 @@ class DecoderLayer(nn.Module):
         self.post_attention_layernorm = RMSNorm(config.hidden_size, config.rms_norm_eps)
         self.mlp = MLP(config)
 
-    def __call__(self, hidden, positions, cache, addition):
+    def __call__(self, hidden, positions, cache, addition, mlp_inputs=None):
+        """``addition`` is ``(activation, residual)``, each ``[batch, width]`` or None.
+
+        ``activation`` adds to ``silu(gate) * up``; ``residual`` adds to the MLP output.
+        A list passed as ``mlp_inputs`` receives the normalized MLP input.
+        """
         normalized = self.input_layernorm(hidden)
         hidden = hidden + (
             self.linear_attn(normalized, cache)
             if self.is_linear
             else self.self_attn(normalized, positions, cache)
         )
-        return hidden + self.mlp(self.post_attention_layernorm(hidden), addition)
+        normalized = self.post_attention_layernorm(hidden)
+        if mlp_inputs is not None:
+            mlp_inputs.append(normalized)
+        activation, residual = addition if addition is not None else (None, None)
+        output = self.mlp(normalized, activation)
+        if residual is not None:
+            output = output + residual[:, None].astype(output.dtype)
+        return hidden + output
 
 
 class TextModel(nn.Module):

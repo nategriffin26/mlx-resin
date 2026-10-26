@@ -132,8 +132,13 @@ class Qwen35MlxRunner(ManagedRunner):
             tuple(float(np.median(np.array(row))) for row in norms),
         )
 
-    def steer(self, token_ids, neurons, calibration):
-        """Prepare additive values once; layer/neuron indices are zero-based."""
+    def steer(self, token_ids, neurons, calibration, directions=()):
+        """Prepare additive values once; layer/neuron indices are zero-based.
+
+        ``directions`` holds ``(layer, vector, dose)``: the MLP output of ``layer`` gains
+        ``dose`` residual medians along ``vector``, the same push size a neuron dose
+        gives along its down-projection column.
+        """
         if (
             calibration.model != self.model_identity
             or len(calibration.residual_medians) != self.config.num_hidden_layers
@@ -176,24 +181,63 @@ class Qwen35MlxRunner(ManagedRunner):
             additions.append(
                 (layer, neuron, dose * calibration.residual_medians[layer] / norm)
             )
+        residual_additions = []
+        for layer, vector, dose in directions:
+            if (
+                not isinstance(layer, int)
+                or not 0 <= layer < self.config.num_hidden_layers
+            ):
+                raise ValueError("steering layer is outside the model")
+            vector = np.asarray(vector, np.float32)
+            norm = float(np.linalg.norm(vector))
+            if (
+                vector.shape != (self.config.hidden_size,)
+                or not math.isfinite(norm)
+                or norm == 0
+            ):
+                raise ValueError(
+                    "steering directions need a nonzero finite hidden-size vector"
+                )
+            if not math.isfinite(dose):
+                raise ValueError("steering dose must be finite")
+            if dose:
+                scale = dose * calibration.residual_medians[layer] / norm
+                residual_additions.append(
+                    (layer, (vector * scale).astype("<f4").tobytes())
+                )
         tokens = tuple(token_ids)
         if not tokens or any(token < 0 or token >= self.vocab_size for token in tokens):
             raise ValueError("steering requires a nonempty in-vocabulary prompt")
-        return Qwen35Steering(tokens, neurons, calibration, tuple(additions))
+        return Qwen35Steering(
+            tokens, neurons, calibration, tuple(additions), tuple(residual_additions)
+        )
 
     def _additions(self, media, rows):
-        layers = {}
+        """Per-layer ``(activation, residual)`` additions for the batch rows."""
+        activations, residuals = {}, {}
         for batch_row, row in enumerate(rows):
             steering = media[row]
             if steering is None:
                 continue
             for layer, neuron, value in steering.additions:
-                if layer not in layers:
-                    layers[layer] = np.zeros(
+                if layer not in activations:
+                    activations[layer] = np.zeros(
                         (len(rows), self.config.intermediate_size), np.float32
                     )
-                layers[layer][batch_row, neuron] += value
-        return {layer: mx.array(values) for layer, values in layers.items()}
+                activations[layer][batch_row, neuron] += value
+            for layer, vector in steering.residual_additions:
+                if layer not in residuals:
+                    residuals[layer] = np.zeros(
+                        (len(rows), self.config.hidden_size), np.float32
+                    )
+                residuals[layer][batch_row] += np.frombuffer(vector, "<f4")
+        return {
+            layer: tuple(
+                mx.array(values[layer]) if layer in values else None
+                for values in (activations, residuals)
+            )
+            for layer in activations.keys() | residuals.keys()
+        }
 
     def forward(self, plan):
         if self.arena.binding.pool_id is None:

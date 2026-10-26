@@ -40,8 +40,10 @@ class SteeringCalibration:
 
 @dataclass(frozen=True)
 class Qwen35Steering:
-    """MediaInput built by ``runner.steer(tokens, [(layer, neuron, dose)], calibration)``.
+    """MediaInput built by ``runner.steer(tokens, neurons, calibration, directions=())``.
 
+    ``additions`` holds ``(layer, neuron, value)`` added to MLP activations;
+    ``residual_additions`` holds ``(layer, float32 bytes)`` vectors added to MLP outputs.
     The first eight identity words carry 248 digest bits outside the model vocabulary;
     remaining tokens stay raw so generated-prefix continuations can hit the same trie.
     Prompts shorter than eight tokens carry only 31 bits per token. Like every finite
@@ -52,17 +54,23 @@ class Qwen35Steering:
     neurons: tuple[tuple[int, int, float], ...]
     calibration: SteeringCalibration
     additions: tuple[tuple[int, int, float], ...]
+    residual_additions: tuple[tuple[int, bytes], ...] = ()
     cache_key: tuple[int, ...] = field(init=False)
     token_spans: tuple = field(default=(), init=False)
 
     def __post_init__(self):
         tokens = tuple(self.token_ids)
         object.__setattr__(self, "token_ids", tokens)
+        fields = [self.neurons, asdict(self.calibration), self.additions]
+        if self.residual_additions:
+            fields.append(
+                [
+                    (layer, hashlib.sha256(vector).hexdigest())
+                    for layer, vector in self.residual_additions
+                ]
+            )
         identity = json.dumps(
-            (self.neurons, asdict(self.calibration), self.additions),
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
+            fields, sort_keys=True, separators=(",", ":"), allow_nan=False
         ).encode()
         keys = list(tokens)
         for index, token in enumerate(tokens[:8]):
