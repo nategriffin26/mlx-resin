@@ -19,6 +19,7 @@ configuration belongs in `deploy/models.py`.
 | [lfm2_mlx_chat.py](../scripts/lfm2_mlx_chat.py) | Apple Silicon example: the same native LFM2 recipe and prompt, streamed through an Engine-managed MLX runner. |
 | [benchmark_lfm2_mlx.py](../scripts/benchmark_lfm2_mlx.py) | Compare synchronized Engine and mlx-lm batch-API throughput with the pinned checkpoint and identical dtype/input tokens. |
 | [qwen35_mlx_chat.py](../scripts/qwen35_mlx_chat.py) | [Dense Qwen3.5 MLX chat](../models/mlx/resin_models_mlx/qwen3_5/README.md), with a calibrated baseline-versus-steered demo through the existing [media contract](steering.md). |
+| [qwen35_neuron_sweep.py](../scripts/qwen35_neuron_sweep.py) | Qwen3.5 [neuron sweeps](neuron-sweeps.md): activation statistics, steered `main_rel` rollouts with random-direction controls, steer lens, direct-path connections and MLP-input captures, in the neuron explorer's file formats. |
 | [benchmark_qwen35_mlx.py](../scripts/benchmark_qwen35_mlx.py) | Compare pinned Qwen3.5-4B BF16 Engine and mlx-lm throughput with fresh caches, synchronized phase timings, and three-run medians. |
 | [benchmark_qwen35_precision.py](../scripts/benchmark_qwen35_precision.py) | Measure HF's own BF16 rounding noise beside native and exact MLX recurrence on the same pinned inputs and saved HF FP32 logits. |
 | [benchmark_mlx_arena.py](../scripts/benchmark_mlx_arena.py) | Measure MLX slice writes with donation versus a retained old view that forces copying. |

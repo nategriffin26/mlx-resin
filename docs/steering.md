@@ -50,4 +50,5 @@ isolation. No Engine or Rust changes are needed.
 
 Steering is a model-runner feature, not vision media, an HTTP extension, or a
 microscope UI. See the [Qwen runner](../models/mlx/resin_models_mlx/qwen3_5/README.md)
-for the chat demo and calibration command.
+for the chat demo and calibration command, and [neuron sweeps](neuron-sweeps.md)
+for random-direction pushes (`directions=`) and layer-wide sweeps.
