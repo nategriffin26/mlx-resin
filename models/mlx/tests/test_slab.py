@@ -61,3 +61,18 @@ def test_mixed_group_dtypes_preserve_fp32_state_and_bfloat16_history():
         np.array(arena.read_layer(1, 0, slab, zero)), np.array(state)
     )
     assert arena.storage.nbytes == (layout.parent_capacity + 1) * arena.slab_bytes
+
+
+@pytest.mark.parametrize("capacity", [2**21 - 2, 2**21 - 1, 2**21])
+def test_byte_capacity_crosses_signed_dimension_limit_without_flattening(
+    monkeypatch, capacity
+):
+    # MLX validates lazy array dimensions before allocation. Suppress only
+    # evaluation so this boundary test never reserves a multi-GiB buffer.
+    monkeypatch.setattr(mx, "eval", lambda *arrays: None)
+    arena = SlabArena(
+        CacheLayout(parent_capacity=capacity, groups=(CacheGroupLayout(1),)),
+        ((1, 512),),
+    )
+    assert arena.storage.shape == (capacity + 1, 1024)
+    assert arena.storage.nbytes == (capacity + 1) * 1024

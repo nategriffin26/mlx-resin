@@ -34,7 +34,9 @@ def test_each_history_token_is_visited_once_without_reading_nan_padding(length):
         ((1, 128, 2, 1, 32),),
         group_dtypes=(mx.float32,),
     )
-    arena.storage = mx.full(arena.storage.size // 4, float("nan")).view(mx.uint8)
+    arena.storage = mx.full(
+        (arena.storage.shape[0], arena.slab_bytes // 4), float("nan")
+    ).view(mx.uint8)
     slabs = (
         np.arange(1, 2 * width + 1, dtype=np.uint32).reshape(2, width)[:, ::-1].copy()
     )

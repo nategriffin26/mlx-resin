@@ -115,7 +115,9 @@ use the same number of physical blocks after rounding.
 
 ## MLX arena
 
-`resin.backend.mlx.SlabArena` backs every group with one contiguous byte array.
+`resin.backend.mlx.SlabArena` backs every group with one contiguous byte array
+shaped `[slab, byte]`. Neither dimension grows with total byte capacity, so
+multi-GiB arenas do not hit MLX's signed 32-bit dimension limit.
 The model supplies a `[layer, ...]` block shape and dtype for each group.
 The largest packed byte allocation determines the slab stride, aligned for
 every group dtype. BF16 history and FP32 recurrent state therefore share the
@@ -125,8 +127,8 @@ they do not wrap at the 8 GiB BF16 boundary. No request-to-cache map exists.
 
 MLX slice assignment can copy the entire allocation while an old view is live.
 The arena queues writes, evaluates their values and model outputs together,
-then commits one scatter in the widest commonly aligned integer word type.
-Typed views are ephemeral. Fresh blocks and null state are cleared before
+then commits one two-axis scatter in the widest commonly aligned integer word
+type, without flattening the arena. Typed views are ephemeral. Fresh blocks and null state are cleared before
 execution, including reused padding. `commit()` synchronizes before the Engine
 releases its leases.
 

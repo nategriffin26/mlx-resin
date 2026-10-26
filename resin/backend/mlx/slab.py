@@ -143,7 +143,7 @@ class SlabArena:
         )
         mx.eval(self._write_ranges)
         self.storage = mx.zeros(
-            (layout.parent_capacity + 1) * self.slab_bytes, mx.uint8
+            (layout.parent_capacity + 1, self.slab_bytes), mx.uint8
         )
         mx.eval(self.storage)
         self.binding = CachePoolBinding(layout, resource="MLX slab arena")
@@ -265,7 +265,9 @@ class SlabArena:
             )
         if indices:
             self.storage = self.storage.view(self.write_dtype)
-            self.storage[mx.concatenate(indices)] = 0
+            words = self.slab_bytes // self.write_size
+            addresses = mx.concatenate(indices)
+            self.storage[addresses // words, addresses % words] = 0
             self.storage = self.storage.view(mx.uint8)
             mx.eval(self.storage)
 
@@ -279,6 +281,7 @@ class SlabArena:
         mx.eval(indices, values, *outputs)
         self._writes.clear()
         self.storage = self.storage.view(self.write_dtype)
-        self.storage[indices] = values
+        words = self.slab_bytes // self.write_size
+        self.storage[indices // words, indices % words] = values
         self.storage = self.storage.view(mx.uint8)
         mx.eval(self.storage)
