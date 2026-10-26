@@ -1,9 +1,12 @@
 """Compare pinned Qwen3.5-4B BF16 through the Engine and mlx-lm BatchGenerator."""
 
 import argparse
+import hashlib
 import json
 import statistics
+import subprocess
 import time
+from collections import defaultdict
 
 import mlx.core as mx
 from mlx_lm.generate import BatchGenerator
@@ -16,6 +19,26 @@ from resin.models.qwen3_5.config import Qwen35Config
 from resin_models_mlx.qwen3_5 import DEFAULT_MODEL, DEFAULT_REVISION, Qwen35MlxRunner
 from resin_models_mlx.qwen3_5.cache import CacheGeometry
 from resin_models_mlx.qwen3_5.mlx import _download_model
+
+
+def memory_counters():
+    lines = subprocess.check_output(["vm_stat"], text=True).splitlines()[1:]
+    return {
+        name: int(value.strip().rstrip("."))
+        for line in lines
+        for name, value in [line.split(":", 1)]
+        if name in ("Pageouts", "Swapouts", "Swapins", "Pages occupied by compressor")
+    }
+
+
+def native_delta_update(query, key, value, decay, beta, state, *, state_offsets=None):
+    """Materialize arena state only for the native-kernel numerical diagnostic."""
+    if state_offsets is not None:
+        shape = (value.shape[0], value.shape[2], value.shape[3], query.shape[-1])
+        width = shape[1] * shape[2] * shape[3]
+        indices = state_offsets[: shape[0], None] + mx.arange(width, dtype=mx.uint64)
+        state = state.view(mx.float32).reshape(-1)[indices].reshape(shape)
+    return mx.fast.gated_delta_update(query, key, value, decay, beta, state)
 
 
 def delta_trials(runs):
@@ -59,7 +82,79 @@ def delta_trials(runs):
             )
 
 
-def resin_trial(engine, prompts, count):
+class OperationProfile:
+    """Exclusive synchronized decode timings; deliberately changes GPU scheduling."""
+
+    def __init__(self):
+        self.enabled = False
+        self.samples = defaultdict(list)
+        self.stack = []
+        self.originals = []
+
+    def wrap(self, owner, name, label):
+        original = getattr(owner, name)
+        self.originals.append((owner, name, original))
+
+        def measured(*args, **kwargs):
+            if not self.enabled:
+                return original(*args, **kwargs)
+            mx.synchronize()
+            frame = [time.perf_counter(), 0.0]
+            self.stack.append(frame)
+            result = original(*args, **kwargs)
+            arrays = []
+            pending = [result]
+            # Queued writes otherwise execute under commit rather than their producer.
+            if name in ("store", "append"):
+                pending.append(args[0].arena._writes)
+            while pending:
+                value = pending.pop()
+                if isinstance(value, mx.array):
+                    arrays.append(value)
+                elif isinstance(value, (tuple, list)):
+                    pending.extend(value)
+            mx.eval(*arrays)
+            mx.synchronize()
+            elapsed = time.perf_counter() - frame[0]
+            self.stack.pop()
+            self.samples[label].append(elapsed - frame[1])
+            if self.stack:
+                self.stack[-1][1] += elapsed
+            return result
+
+        setattr(owner, name, measured)
+
+    def install(self):
+        from resin.backend.mlx import MlxSampler, SlabArena
+        from resin_models_mlx.qwen3_5 import model
+        from resin_models_mlx.qwen3_5.cache import DeviceCache
+
+        for owner, name, label in (
+            (SlabArena, "read_layer", "arena_gather"),
+            (DeviceCache, "store", "state_pack_and_queue"),
+            (DeviceCache, "append", "kv_pack_and_queue"),
+            (SlabArena, "commit", "arena_concat_and_scatter"),
+            (SlabArena, "initialize_fresh", "arena_initialize"),
+            (model, "gated_delta_update", "gdn_recurrence"),
+            (model.GatedDeltaNet, "__call__", "gdn_projections_and_gates"),
+            (model.Attention, "__call__", "attention"),
+            (model.MLP, "__call__", "mlp"),
+            (MlxSampler, "__call__", "sampling"),
+            (Qwen35MlxRunner, "forward", "runner_other"),
+            (model.Qwen35ForCausalLM, "logits", "vocabulary_projection"),
+        ):
+            self.wrap(owner, name, label)
+
+    def close(self, steps):
+        for owner, name, original in self.originals:
+            setattr(owner, name, original)
+        return {
+            label: {"calls": len(values), "ms_per_step": sum(values) * 1000 / steps}
+            for label, values in self.samples.items()
+        }
+
+
+def resin_trial(engine, prompts, count, profile=None):
     requests = [
         engine.submit(
             prompt,
@@ -68,6 +163,7 @@ def resin_trial(engine, prompts, count):
         for prompt in prompts
     ]
     mx.synchronize()
+    mx.reset_peak_memory()
     start = time.perf_counter()
     first = []
     while len(first) < len(prompts):
@@ -78,6 +174,11 @@ def resin_trial(engine, prompts, count):
     assert {event.request_id for event in first} == {
         request.request_id for request in requests
     }, "the complete cohort must prefill before any request decodes"
+    prefill_peak = mx.get_peak_memory()
+    decode_memory_before = memory_counters()
+    mx.reset_peak_memory()
+    if profile is not None:
+        profile.enabled = True
     start = time.perf_counter()
     completed = 0
     while completed < count:
@@ -87,11 +188,13 @@ def resin_trial(engine, prompts, count):
             completed += 1
     mx.synchronize()
     decode = time.perf_counter() - start
+    if profile is not None:
+        profile.enabled = False
     tokens = [request.take_result() for request in requests]
     assert all(len(row) == count + 1 for row in tokens)
     assert all(row == tokens[0] for row in tokens), "identical greedy rows diverged"
     assert not engine.has_work()
-    return prefill, decode, tokens
+    return prefill, decode, tokens, prefill_peak, decode_memory_before
 
 
 def mlx_lm_trial(model, prompts, count):
@@ -105,6 +208,7 @@ def mlx_lm_trial(model, prompts, count):
     uids = generator.insert(prompts)
     tokens = {uid: [] for uid in uids}
     mx.synchronize()
+    mx.reset_peak_memory()
     start = time.perf_counter()
     first = generator.next_generated()
     mx.synchronize()
@@ -112,6 +216,9 @@ def mlx_lm_trial(model, prompts, count):
     assert len(first) == len(prompts)
     for row in first:
         tokens[row.uid].append(row.token)
+    prefill_peak = mx.get_peak_memory()
+    decode_memory_before = memory_counters()
+    mx.reset_peak_memory()
     start = time.perf_counter()
     for _ in range(count):
         rows = generator.next_generated()
@@ -125,7 +232,7 @@ def mlx_lm_trial(model, prompts, count):
     tokens = [tokens[uid] for uid in uids]
     assert all(len(row) == count + 1 for row in tokens)
     assert all(row == tokens[0] for row in tokens), "identical greedy rows diverged"
-    return prefill, decode, tokens
+    return prefill, decode, tokens, prefill_peak, decode_memory_before
 
 
 def main():
@@ -137,6 +244,7 @@ def main():
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--delta-only", action="store_true")
     parser.add_argument("--prefill-chunk-size", type=int, default=4096)
+    parser.add_argument("--profile-operations", action="store_true")
     parser.add_argument(
         "--delta-kernel",
         choices=("exact", "native"),
@@ -154,13 +262,19 @@ def main():
             parser.error("--delta-kernel native requires --backend resin")
         import resin_models_mlx.qwen3_5.model as qwen_model
 
-        qwen_model.gated_delta_update = mx.fast.gated_delta_update
+        qwen_model.gated_delta_update = native_delta_update
     tokenizer = Tokenizer.from_pretrained(DEFAULT_MODEL, revision=DEFAULT_REVISION)
     text = "Alice lives in Paris. Bob lives in Rome. The train leaves at noon. "
     source = tokenizer.encode(text * (args.prompt_tokens // 8 + 1)).ids
     prompts = [source[: args.prompt_tokens] for _ in range(args.batch_size)]
     assert all(len(prompt) == args.prompt_tokens for prompt in prompts)
     path = resolve_model(DEFAULT_MODEL, DEFAULT_REVISION, _download_model)
+    profile = None
+    if args.profile_operations:
+        if args.backend != "resin":
+            parser.error("--profile-operations requires --backend resin")
+        profile = OperationProfile()
+        profile.install()
     if args.backend == "resin":
         geometry = CacheGeometry(
             Qwen35Config.from_hugging_face(read_config(path)),
@@ -212,9 +326,15 @@ def main():
         flush=True,
     )
     execute()
+    if profile is not None:
+
+        def execute():
+            return resin_trial(engine, prompts, args.decode_tokens, profile)
+
     results = []
+    memory_before = memory_counters()
     for index in range(args.runs):
-        prefill, decode, tokens = execute()
+        prefill, decode, tokens, prefill_peak, decode_memory_before = execute()
         result = {
             "run": index + 1,
             "prefill_seconds": prefill,
@@ -223,7 +343,26 @@ def main():
             "decode_tps": args.batch_size * args.decode_tokens / decode,
             "generated_tokens": sum(map(len, tokens)),
             "first_tokens": tokens[0][:8],
+            "token_hashes": [
+                hashlib.sha256(json.dumps(row).encode()).hexdigest() for row in tokens
+            ],
+            "prefill_peak_bytes": prefill_peak,
+            "decode_peak_bytes": mx.get_peak_memory(),
+            "active_bytes": mx.get_active_memory(),
+            "cache_bytes": mx.get_cache_memory(),
         }
+        memory_after = memory_counters()
+        result["vm_stat_before"] = memory_before
+        result["vm_stat_after"] = memory_after
+        result["paging_delta"] = {
+            key: memory_after[key] - memory_before[key]
+            for key in ("Pageouts", "Swapouts", "Swapins")
+        }
+        result["decode_paging_delta"] = {
+            key: memory_after[key] - decode_memory_before[key]
+            for key in ("Pageouts", "Swapouts", "Swapins")
+        }
+        memory_before = memory_after
         results.append(result)
         print(json.dumps(result), flush=True)
     print(
@@ -239,6 +378,19 @@ def main():
         ),
         flush=True,
     )
+    if profile is not None:
+        print(
+            json.dumps(
+                {
+                    "exclusive_synchronized_operations": profile.close(
+                        args.runs * args.decode_tokens
+                    ),
+                    "note": "Decode only; forced synchronization changes scheduling. "
+                    "Subtract summed operation times from decode for Engine/Python overhead.",
+                }
+            ),
+            flush=True,
+        )
     if args.backend == "resin":
         engine.close()
 

@@ -4,7 +4,7 @@ import mlx.core as mx
 
 _recurrence = mx.fast.metal_kernel(
     name="resin_qwen35_delta",
-    input_names=["query", "key", "value", "decay", "beta", "initial"],
+    input_names=["query", "key", "value", "decay", "beta", "initial", "state_offsets"],
     output_names=["output", "final"],
     source="""
         uint lane = thread_position_in_threadgroup.x;
@@ -15,10 +15,14 @@ _recurrence = mx.fast.metal_kernel(
         uint tokens = query_shape[1];
         size_t state_base = ((size_t(row) * value_shape[2] + head)
                             * value_shape[3] + column) * D;
+        size_t initial_base = PAGED
+            ? size_t(state_offsets[row]) + (size_t(head) * value_shape[3] + column) * D
+            : state_base;
+        const device float* previous = reinterpret_cast<const device float*>(initial);
         float state[(D + 31) / 32];
         for (uint index = 0; index < (D + 31) / 32; ++index)
             state[index] = index * 32 + lane < D
-                ? initial[state_base + index * 32 + lane] : 0;
+                ? previous[initial_base + index * 32 + lane] : 0;
         for (uint token = 0; token < tokens; ++token) {
             size_t gate_offset = (size_t(row) * tokens + token) * value_shape[2] + head;
             size_t key_offset = ((size_t(row) * tokens + token) * key_shape[2]
@@ -50,13 +54,25 @@ _recurrence = mx.fast.metal_kernel(
 )
 
 
-def gated_delta_update(query, key, value, decay, beta, state):
-    """Normalized queries already include the key-dimension inverse-square-root scale."""
+def gated_delta_update(query, key, value, decay, beta, state, *, state_offsets=None):
+    """Read FP32 state directly from byte-arena offsets, or from a dense state tensor."""
+    paged = state_offsets is not None
     return _recurrence(
-        inputs=[query, key, value, decay, beta, state],
-        template=[("D", query.shape[-1])],
+        inputs=[
+            query,
+            key,
+            value,
+            decay,
+            beta,
+            state,
+            state_offsets if paged else mx.zeros(32, mx.uint64),
+        ],
+        template=[("D", query.shape[-1]), ("PAGED", paged)],
         grid=(32, value.shape[-1], value.shape[0] * value.shape[2]),
         threadgroup=(32, 4, 1),
-        output_shapes=[value.shape, state.shape],
+        output_shapes=[
+            value.shape,
+            (value.shape[0], value.shape[2], value.shape[3], query.shape[-1]),
+        ],
         output_dtypes=[mx.float32, mx.float32],
     )

@@ -82,3 +82,30 @@ def test_fp32_recurrence_does_not_use_relaxed_matrix_precision():
     np.testing.assert_allclose(
         np.array(state), reference_state.transpose(-1, -2).numpy(), atol=2e-6, rtol=2e-5
     )
+
+
+@pytest.mark.parametrize("width", [31, 32, 33])
+def test_paged_recurrence_reads_permuted_state_offsets_without_padding(width):
+    stride = 2 * 5 * width + 17
+    offsets = mx.array([3 * stride + 17, stride + 17], mx.uint64)
+    arena = mx.full((5, stride), float("nan"))
+    arena[3, 17:] = 4.0
+    arena[1, 17:] = 8.0
+    query = mx.full((2, 2, 1, width), 1 / width)
+    output, final = gated_delta_update(
+        query,
+        mx.zeros_like(query),
+        mx.zeros((2, 2, 2, 5)),
+        mx.full((2, 2, 2), 0.25),
+        mx.zeros((2, 2, 2)),
+        arena.view(mx.uint8),
+        state_offsets=offsets,
+    )
+    expected = np.broadcast_to(
+        np.array([[[[1.0]], [[0.25]]], [[[2.0]], [[0.5]]]]), (2, 2, 2, 5)
+    )
+    expected_state = np.broadcast_to(
+        np.array([[[[0.25]]], [[[0.5]]]]), (2, 2, 5, width)
+    )
+    np.testing.assert_allclose(np.array(output), expected, atol=1e-6, rtol=1e-6)
+    np.testing.assert_allclose(np.array(final), expected_state, atol=1e-6, rtol=1e-6)

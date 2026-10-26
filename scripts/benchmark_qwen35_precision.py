@@ -82,7 +82,9 @@ def main():
         from resin_models_mlx.qwen3_5 import Qwen35MlxRunner
 
         if args.backend == "mlx-native":
-            qwen_model.gated_delta_update = mx.fast.gated_delta_update
+            from benchmark_qwen35_mlx import native_delta_update
+
+            qwen_model.gated_delta_update = native_delta_update
         runner = Qwen35MlxRunner(path, cache_slab_capacity=16)
         sampler = runner._sampler
 

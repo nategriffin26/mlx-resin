@@ -135,6 +135,13 @@ to 3.29 MB. Typed views are ephemeral; the public byte array stays two-dimension
 Fresh blocks and null state are cleared before execution, including reused
 padding. `commit()` synchronizes before the Engine releases its leases.
 
+Qwen's Gated DeltaNet kernel reads FP32 recurrent state directly from this arena
+using 64-bit element offsets. Only the small convolution prefix is gathered.
+This removes the full recurrent-state gather and its temporary buffer without
+changing the recurrence arithmetic or checkpoint format. The kernel returns
+new state normally; writes still wait for all readers and use the single
+leased scatter. No kernel mutates an MLX input buffer.
+
 Runners release MLX's unused allocator buffers after prefill, matching mlx-lm's
 prefill boundary. Large prefill scratch buffers otherwise remain cached beside
 the live model and recurrent state during decode. Decode allocations remain
@@ -146,7 +153,7 @@ The public backend API is:
 | --- | --- |
 | `SlabArena(layout, group_shapes, group_dtypes=...)` | Allocate one mixed-precision byte arena; default group dtype is BF16. Permanently bind with `bind_resources(ResourceBinding)`. |
 | `SlabArena.storage` | Contiguous uint8 array shaped `[parent_capacity + 1, slab_bytes]`; row zero is the null slab. |
-| `SlabArena.read_layer(...)` | Read complete layer pages with a compact-address Metal kernel, without per-element indices. |
+| `SlabArena.read_layer(..., prefix_elements=None)` | Read complete layer pages, or a leading flat prefix, with compact physical addresses and no per-element indices. |
 | `SlabArena.write_layer(...)` | Queue whole-state or token-offset history writes. |
 | `SlabArena.commit(*outputs)` | Evaluate reads and optional model outputs together, then synchronously persist one scatter. |
 | `SlabArena.initialize_fresh(plan)` | Clear newly entered blocks and null state before execution. |

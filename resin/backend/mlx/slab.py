@@ -169,9 +169,14 @@ class SlabArena:
             layer * math.prod(shape[1:]),
         )
 
-    def read_layer(self, group, layer, slabs, slots):
-        """Gather complete layer pages at validated physical addresses."""
-        shape = self.group_shapes[group][1:]
+    def read_layer(self, group, layer, slabs, slots, *, prefix_elements=None):
+        """Gather layer pages, or only their leading elements, at physical addresses."""
+        full_shape = self.group_shapes[group][1:]
+        shape = full_shape if prefix_elements is None else (prefix_elements,)
+        if prefix_elements is not None and not 0 < prefix_elements <= math.prod(
+            full_shape
+        ):
+            raise ValueError("cache prefix lies outside its layer page")
         if not 0 <= layer < self.group_shapes[group][0]:
             raise ValueError("cache layer lies outside its cache group")
         width = math.prod(shape)
@@ -185,7 +190,7 @@ class SlabArena:
                     [
                         self.slab_bytes // self.item_sizes[group],
                         self.block_elements[group],
-                        layer * width,
+                        layer * math.prod(full_shape),
                         width,
                         slabs.size,
                     ],

@@ -139,11 +139,22 @@ class DeviceCache:
         )
 
     def state(self, layer):
-        packed = self.arena.read_layer(1, layer, self.state_slabs, self.state_slots)
-        split = self.geometry.conv_elements
+        convolution = self.arena.read_layer(
+            1,
+            layer,
+            self.state_slabs,
+            self.state_slots,
+            prefix_elements=self.geometry.conv_elements,
+        )
+        offsets = self.arena._base(1, layer, self.state_slabs, self.state_slots)
+        # Padding keeps metadata in Metal's device address space at every batch size.
+        offsets = mx.concatenate(
+            (offsets + self.geometry.conv_elements, mx.zeros(32, mx.uint64))
+        )
         return (
-            packed[:, :split].reshape(-1, *self.geometry.conv_shape),
-            packed[:, split:].reshape(-1, *self.geometry.recurrent_shape),
+            convolution.reshape(-1, *self.geometry.conv_shape),
+            self.arena.storage,
+            offsets,
         )
 
     def store(self, layer, convolution, recurrent):

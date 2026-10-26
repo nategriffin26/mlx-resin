@@ -59,6 +59,7 @@ class GatedDeltaNet(nn.Module):
         config = self.config
         batch, length, _ = hidden.shape
         keep = config.linear_conv_kernel_dim - 1
+        state_offsets = None
         if cache is None:
             convolution = mx.zeros((batch, keep, config.linear_conv_dim), hidden.dtype)
             recurrent = mx.zeros(
@@ -70,7 +71,7 @@ class GatedDeltaNet(nn.Module):
                 )
             )
         else:
-            convolution, recurrent = cache.state(self.layer)
+            convolution, recurrent, state_offsets = cache.state(self.layer)
         convolution = mx.concatenate(
             (convolution.astype(hidden.dtype), self.in_proj_qkv(hidden)), axis=1
         )
@@ -101,7 +102,13 @@ class GatedDeltaNet(nn.Module):
         beta = mx.sigmoid(self.in_proj_b(hidden)).astype(mx.float32)
         # FP32 recurrence keeps the same accumulation and checkpoint dtype as HF.
         output, recurrent = gated_delta_update(
-            query, key, value.astype(mx.float32), decay, beta, recurrent
+            query,
+            key,
+            value.astype(mx.float32),
+            decay,
+            beta,
+            recurrent,
+            state_offsets=state_offsets,
         )
         if cache is not None:
             cache.store(self.layer, convolution[:, -keep:], recurrent)
