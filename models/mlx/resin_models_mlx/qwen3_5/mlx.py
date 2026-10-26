@@ -269,13 +269,13 @@ class Qwen35MlxRunner(ManagedRunner):
                     "Qwen3.5 text runner accepts only its own calibrated steering media"
                 )
         groups = stage_page_groups(cache_plan)
-        resident_key = self._decode_state.prepare(cache_plan)
         try:
+            resident_key = self._decode_state.prepare(cache_plan)
             has_prefill = np.any(cache_plan.batch.query_lengths > 1)
             if has_prefill:
                 # Decode-sized free buffers cannot satisfy large prefill allocations.
                 mx.clear_cache()
-            self.arena.initialize_fresh(cache_plan)
+            self.arena.initialize_fresh(cache_plan, defer_fresh=True)
             logits_rows, prompt_rows = [], []
             batches = (
                 [list(range(cache_plan.rows))]

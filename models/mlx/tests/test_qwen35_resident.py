@@ -165,7 +165,7 @@ def test_resident_published_prefix_is_visible_to_later_cohort(model_factory):
     assert actual == expected
 
 
-@pytest.mark.parametrize("length,steps", [(125, 2), (128, 1)])
+@pytest.mark.parametrize("length,steps", [(125, 2), (128, 1), (17, 0)])
 def test_failed_forward_preserves_arena_and_resident_state(
     model_factory, length, steps
 ):
@@ -175,7 +175,7 @@ def test_failed_forward_preserves_arena_and_resident_state(
     for _ in range(steps):
         engine.step()
     # Dirty padding makes a failed fresh-page clear observable, not a zero-to-zero write.
-    if length == 128:
+    if length == 128 or steps == 0:
         model.arena.storage = mx.ones_like(model.arena.storage)
     mx.eval(model.arena._storage)
     before = np.array(model.arena._storage)
@@ -200,6 +200,7 @@ def test_failed_forward_preserves_arena_and_resident_state(
             for left, right in zip(current, previous, strict=True):
                 np.testing.assert_array_equal(np.array(left), right)
     assert not model.arena._writes
+    assert model.arena._pending_clear is None
 
 
 @pytest.mark.parametrize("access", ["storage", "state_layer"])
@@ -221,3 +222,44 @@ def test_arena_read_barrier_materializes_resident_state(model_factory, access):
         actual = model.arena.read_layer(1, 0, state.slabs, state.slots)
         np.testing.assert_array_equal(np.array(actual), expected)
         assert state.layers is None
+
+
+def test_cohort_flush_failure_quarantines_engine(model_factory, monkeypatch):
+    model = model_factory()
+    engine = Engine(model, prefix_cache=False)
+    submit(engine, prompt(17), 10)
+    engine.step()
+    engine.step()
+    layers = model._decode_state.layers
+    submit(engine, prompt(19, 3), 10)
+
+    def fail(*outputs):
+        raise RuntimeError("injected write-back commit failure")
+
+    monkeypatch.setattr(model.arena, "commit", fail)
+    with pytest.raises(
+        RuntimeError, match="injected write-back commit failure"
+    ) as error:
+        engine.step()
+    assert error.value._resin_post_accept
+    assert not model.arena._writes
+    assert model._decode_state.layers is layers
+    with pytest.raises(RuntimeError, match="poisoned"):
+        engine.step()
+
+
+def test_prefill_rollback_does_not_copy_every_new_state_block(model_factory):
+    model = model_factory()
+    sampler = model._sampler
+    backup_bytes = []
+
+    def record(logits, plan):
+        backup_bytes.append(model.arena._cleared[1].nbytes)
+        return sampler(logits, plan)
+
+    model._sampler = record
+    with Engine(model, prefix_cache=False) as engine:
+        for offset in range(3):
+            submit(engine, prompt(17, offset), 1)
+        engine.step()
+    assert backup_bytes == [model.arena.slab_bytes]

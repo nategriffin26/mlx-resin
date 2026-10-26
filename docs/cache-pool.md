@@ -159,9 +159,12 @@ History kernels use a group-scoped read that does not flush unrelated STATE data
 
 Each forward builds new arrays separately from the committed cohort. Output
 formatting and evaluation precede the KV scatter and resident publication.
-Failure during model execution or sampling discards queued writes and restores
-any fresh-block clearing; it does not replace the committed recurrent arrays.
-Device/commit failures retain the Engine's existing post-accept quarantine policy.
+Failure during model execution, sampling, or output formatting discards queued
+writes; it does not replace the committed recurrent arrays. Qwen defers clearing
+fresh destination blocks until commit because no input reads them. Only null
+state is cleared before execution and backed up for rollback. This avoids copying
+every new STATE block merely to undo initialization. Device/commit failures,
+including a cohort-change flush, retain the Engine's post-accept quarantine policy.
 
 The design choice on 2026-10-26 was **cohort-resident write-back**, rather than:
 
@@ -190,11 +193,12 @@ The public backend API is:
 | Name | Contract |
 | --- | --- |
 | `SlabArena(layout, group_shapes, group_dtypes=...)` | Allocate one mixed-precision byte arena; default group dtype is BF16. Permanently bind with `bind_resources(ResourceBinding)`. |
-| `SlabArena.storage` | Contiguous uint8 array shaped `[parent_capacity + 1, slab_bytes]`; row zero is the null slab. |
+| `SlabArena.storage` | Flush write-back state, then expose contiguous uint8 `[parent_capacity + 1, slab_bytes]`; row zero is the null slab. |
 | `SlabArena.read_layer(..., prefix_elements=None)` | Read complete layer pages, or a leading flat prefix, with compact physical addresses and no per-element indices. |
+| `SlabArena.read_storage(group)` | Flush that group's write-back, if any, before a group-scoped kernel read. |
 | `SlabArena.write_layer(...)` | Queue whole-state or token-offset history writes. |
 | `SlabArena.commit(*outputs)` | Evaluate reads and optional model outputs together, then synchronously persist one scatter. |
-| `SlabArena.initialize_fresh(plan)` | Clear newly entered blocks and null state before execution. |
+| `SlabArena.initialize_fresh(plan, defer_fresh=False)` | Clear null state and new blocks; defer unread destinations to commit when requested. `abort()` discards proposals and restores eager clearing. |
 | `paged_attention(...)` | One-token decode over paged history plus separate uncommitted K/V; FP32 softmax accumulation. |
 | `DevicePageGroup` | Device slab IDs, slots, first logical blocks, and valid column counts. |
 | `stage_page_groups(PagedCachePlan)` | Lower native CSR tables into zero-padded MLX arrays. |

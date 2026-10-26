@@ -92,7 +92,7 @@ class SlabArena:
 
     Writes are deferred until all reads and new values have been evaluated. This
     lets MLX donate the backing buffer instead of copying it for every layer.
-    No tensor view or request identity is retained between forwards.
+    An optional physical-block write-back flushes through the public read barrier.
     """
 
     def __init__(self, layout: CacheLayout, group_shapes, *, group_dtypes=None):
@@ -157,6 +157,7 @@ class SlabArena:
         self._writes: list[tuple[mx.array, mx.array]] = []
         self._cleared = None
         self.write_back = None
+        self._pending_clear = None
 
     @property
     def storage(self):
@@ -268,13 +269,14 @@ class SlabArena:
             )
         )
 
-    def initialize_fresh(self, plan: PagedCachePlan) -> None:
-        """Clear blocks starting here, including recycled padding and state."""
+    def initialize_fresh(self, plan: PagedCachePlan, *, defer_fresh=False) -> None:
+        """Clear null state; optionally defer unread new blocks until commit."""
         indices = []
         if np.any(plan.context_lengths == 0):
             indices.append(
                 mx.arange(self.slab_bytes // self.write_unit_bytes, dtype=mx.uint64)
             )
+        fresh_indices = []
         for index, group in enumerate(plan.groups):
             fresh = group.append_block_offsets == 0
             addresses = np.unique(
@@ -293,7 +295,7 @@ class SlabArena:
                 addresses[:, 0].astype(np.uint64) * self.slab_bytes
                 + addresses[:, 1].astype(np.uint64) * self.block_bytes[index]
             )
-            indices.append(
+            fresh_indices.append(
                 (
                     mx.array(base // self.write_unit_bytes)[:, None]
                     + mx.arange(
@@ -302,6 +304,12 @@ class SlabArena:
                     )
                 ).reshape(-1)
             )
+        if defer_fresh:
+            self._pending_clear = (
+                mx.concatenate(fresh_indices) if fresh_indices else None
+            )
+        else:
+            indices.extend(fresh_indices)
         if indices:
             units = self.slab_bytes // self.write_unit_bytes
             shape = self._storage.shape
@@ -318,15 +326,30 @@ class SlabArena:
             self._storage = self._storage.reshape(shape[0], -1).view(mx.uint8)
             mx.eval(self._storage)
 
+    def _clear_pending(self):
+        if self._pending_clear is not None:
+            units = self.slab_bytes // self.write_unit_bytes
+            shape = self._storage.shape
+            self._storage = self._storage.view(self.write_dtype).reshape(
+                shape[0], units, self.write_unit_words
+            )
+            addresses = self._pending_clear
+            self._storage[addresses // units, addresses % units] = 0
+            self._storage = self._storage.reshape(shape[0], -1).view(mx.uint8)
+            mx.eval(self._storage)
+            self._pending_clear = None
+
     def commit(self, *outputs) -> None:
         """Evaluate outputs and reads together, then synchronously commit leased writes."""
         if not self._writes:
             mx.eval(*outputs)
+            self._clear_pending()
             self._cleared = None
             return
         indices = mx.concatenate([index for index, _ in self._writes])
         values = mx.concatenate([value for _, value in self._writes])
         mx.eval(indices, values, *outputs)
+        self._clear_pending()
         self._writes.clear()
         units = self.slab_bytes // self.write_unit_bytes
         shape = self._storage.shape
@@ -341,6 +364,7 @@ class SlabArena:
     def abort(self):
         """Discard proposed writes and restore fresh-block clearing after rejection."""
         self._writes.clear()
+        self._pending_clear = None
         if self._cleared is not None:
             addresses, values = self._cleared
             units = self.slab_bytes // self.write_unit_bytes
