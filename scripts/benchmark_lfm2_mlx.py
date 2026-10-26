@@ -38,8 +38,12 @@ def resin_trial(engine, prompts, count):
     prefill_seconds = time.perf_counter() - start
     assert len(first) == len(prompts)
     start = time.perf_counter()
-    for _ in range(count):
-        assert len(engine.step()) == len(prompts)
+    completed = 0
+    while completed < count:
+        events = engine.step()
+        if events:
+            assert len(events) == len(prompts)
+            completed += 1
     mx.synchronize()
     decode_seconds = time.perf_counter() - start
     tokens = [request.take_result() for request in requests]
@@ -150,12 +154,17 @@ def main():
     )
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--profile-operations", action="store_true")
+    parser.add_argument("--prefill-chunk-size", type=int, default=2048)
     args = parser.parse_args()
     dtype = getattr(mx, args.dtype)
     capacity = (
         args.batch_size * ((args.prompt_tokens + args.decode_tokens) // 128 + 3) + 4
     )
-    runner = Lfm2MlxRunner(dtype=dtype, cache_slab_capacity=max(64, capacity))
+    runner = Lfm2MlxRunner(
+        dtype=dtype,
+        cache_slab_capacity=max(64, capacity),
+        prefill_chunk_size=args.prefill_chunk_size,
+    )
     model_path = runner.model_path
     tokenizer = Tokenizer.from_pretrained(DEFAULT_MODEL, revision=DEFAULT_REVISION)
     text = "Alice lives in Paris. Bob lives in Rome. The train leaves at noon. "
@@ -190,8 +199,11 @@ def main():
                 "device": mx.device_info(),
                 "batch_size": args.batch_size,
                 "prompt_tokens": args.prompt_tokens,
-                "prefill_chunk_size": 128 if args.backend == "resin" else 2048,
+                "prefill_chunk_size": args.prefill_chunk_size
+                if args.backend == "resin"
+                else 2048,
                 "measured_decode_tokens": args.decode_tokens,
+                "overlap": False,
                 "method": "one warmup; fresh cache each run; prefill includes first token; decode excludes first token; stop disabled",
             }
         ),

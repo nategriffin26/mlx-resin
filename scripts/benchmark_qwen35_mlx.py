@@ -11,8 +11,10 @@ from mlx_lm.utils import load_model
 from tokenizers import Tokenizer
 
 from resin import Engine, SamplingParams
-from resin.backend.loading import resolve_model
+from resin.backend.loading import read_config, resolve_model
+from resin.models.qwen3_5.config import Qwen35Config
 from resin_models_mlx.qwen3_5 import DEFAULT_MODEL, DEFAULT_REVISION, Qwen35MlxRunner
+from resin_models_mlx.qwen3_5.cache import CacheGeometry
 from resin_models_mlx.qwen3_5.mlx import _download_model
 
 
@@ -74,8 +76,12 @@ def resin_trial(engine, prompts, count):
     prefill = time.perf_counter() - start
     assert len(first) == len(prompts)
     start = time.perf_counter()
-    for _ in range(count):
-        assert len(engine.step()) == len(prompts)
+    completed = 0
+    while completed < count:
+        events = engine.step()
+        if events:
+            assert len(events) == len(prompts)
+            completed += 1
     mx.synchronize()
     decode = time.perf_counter() - start
     tokens = [request.take_result() for request in requests]
@@ -125,6 +131,7 @@ def main():
     parser.add_argument("--decode-tokens", type=int, default=64)
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--delta-only", action="store_true")
+    parser.add_argument("--prefill-chunk-size", type=int, default=4096)
     parser.add_argument(
         "--delta-kernel",
         choices=("exact", "native"),
@@ -148,14 +155,26 @@ def main():
     source = tokenizer.encode(text * (args.prompt_tokens // 8 + 1)).ids
     prompts = [source[: args.prompt_tokens] for _ in range(args.batch_size)]
     assert all(len(prompt) == args.prompt_tokens for prompt in prompts)
+    path = resolve_model(DEFAULT_MODEL, DEFAULT_REVISION, _download_model)
     if args.backend == "resin":
-        runner = Qwen35MlxRunner()
+        geometry = CacheGeometry(
+            Qwen35Config.from_hugging_face(read_config(path)),
+            dtype=mx.bfloat16,
+            prefill_chunk_size=args.prefill_chunk_size,
+        )
+        capacity = geometry.layout(1).estimated_parent_count(
+            [args.prompt_tokens + args.decode_tokens + 1] * args.batch_size
+        )
+        runner = Qwen35MlxRunner(
+            path,
+            cache_slab_capacity=max(32, capacity + 4),
+            prefill_chunk_size=args.prefill_chunk_size,
+        )
         engine = Engine(runner, prefix_cache=False)
 
         def execute():
             return resin_trial(engine, prompts, args.decode_tokens)
     else:
-        path = resolve_model(DEFAULT_MODEL, DEFAULT_REVISION, _download_model)
         model, _ = load_model(path)
         mx.eval(model.parameters())
 
@@ -175,7 +194,11 @@ def main():
                 "device": mx.device_info(),
                 "batch_size": args.batch_size,
                 "prompt_tokens": args.prompt_tokens,
+                "prefill_chunk_size": args.prefill_chunk_size
+                if args.backend == "resin"
+                else 2048,
                 "measured_decode_tokens": args.decode_tokens,
+                "overlap": False,
                 "method": "one warmup; three fresh-cache trials; stop disabled; prefill includes first token; decode excludes first token",
             }
         ),

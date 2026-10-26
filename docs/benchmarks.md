@@ -6,7 +6,7 @@ use the same model registry, runner construction, measurements, and JSONL schema
 `scripts/plot_bench.py` renders charts, and `scripts/merge_bench_traces.py` combines
 rank traces for Perfetto. `deploy/modal_bench.py` is a thin remote adapter.
 
-## Apple Silicon: LFM2
+## Apple Silicon: LFM2, slices 1–2
 
 Measured on an Apple M5 Pro with 48 GB unified memory, MLX 0.32.4 and mlx-lm
 0.32.2. Slice 1 was measured on 2026-10-25; slice 2 on 2026-10-26.
@@ -88,9 +88,9 @@ alternatives:
 - **2048-token prefill chunks:** one complete chunk reached 37.2–48.6k tok/s
   (median 38.4k), but the second chunk of a 4096-token prompt could no longer
   address its starting convolution state. The native two-page STATE ring
-  retains checkpoints relative to the scheduled end. This experiment was
-  removed; production keeps 128-token chunks. Larger chunks need a native
-  retention change or coarser recurrent checkpoint intervals.
+  retains checkpoints relative to the scheduled end. Slice 2 kept 128-token
+  chunks. Slice 2b below instead ties the recurrent checkpoint interval to the
+  prefill chunk size, following the CUDA Qwen runner.
 
 The kernel probe intercepts Metal's actual `newLibraryWithSource:options:error:`
 entry, below MLX's library cache. The custom page-kernel count is **3 after
@@ -120,9 +120,14 @@ diagnostics, not end-to-end throughput measurements.
 
 ### Numerical checks
 
-`uv run pytest models/mlx/tests` runs the real native Engine and pinned
-checkpoint. Greedy tokens must match the CPU Torch oracle exactly; sampled
-logits and logprobs use float32 with `atol=rtol=3e-4`. Tests disable M5's default
+`uv run pytest tests/test_engine.py tests/test_scheduler.py models/torch models/mlx -q`
+runs the default gate. The real Qwen3.5-4B CPU oracle is marked `checkpoint` and
+deselected by default; run it explicitly with
+`uv run pytest models/mlx/tests -m checkpoint -q`. Both commands belong to the
+release gate. The remaining MLX tests run the real native Engine and pinned
+LFM2 checkpoint or small Qwen checkpoint. Greedy tokens must match the CPU
+Torch oracle exactly; sampled logits and logprobs use float32 with
+`atol=rtol=3e-4`. Tests disable M5's default
 TF32 GEMM (`MLX_ENABLE_TF32=0`) before importing MLX. With TF32 enabled, a
 layer-zero projection differed from Torch by 0.00155 despite identical weights;
 disabling it reduced that difference to 0.0000012.
@@ -141,6 +146,73 @@ dropped the current token, skipped alternate history tokens, loaded padding,
 truncated addresses or rounded FP32 state all failed their checks. Restoring
 small constant-address metadata also failed the native compilation-count gate.
 
+
+## Apple Silicon: slice 2b
+
+The cache is now one contiguous `[slab, byte]` array, retaining the single
+scatter commit without MLX's 2 GiB byte-dimension limit. Recurrent checkpoints
+use the prefill interval rather than the KV page width: 2048 tokens for LFM2
+and 4096 for Qwen3.5. KV pages remain 128 tokens. This trades exact prefix-hit
+granularity for larger GEMMs without changing native cache ownership.
+
+Run the complete matrix, including Qwen3.5-4B batch 32 and 64:
+
+```bash
+uv run python scripts/benchmark_mlx_matrix.py --output-dir local/mlx-matrix
+```
+
+Each cell alternates Resin and mlx-lm three times, with one warmup and one
+measured trial in each fresh process. Raw JSONL trials and `summary.json` are
+retained in the output directory. The child commands use the arguments above;
+Qwen uses `scripts/benchmark_qwen35_mlx.py`, the pinned
+`Qwen/Qwen3.5-4B@851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a` BF16 weights, and
+the same prompt/decode lengths. Its arena capacity is estimated for the entire
+cohort rather than silently timing only the requests that fit 32 slabs.
+
+### Optimization decisions
+
+These development measurements overlapped unrelated Xcode builds and simulator
+work. Ranges are retained; small differences are not treated as improvements.
+
+Whole-prompt 4096-token prefill, batch one, three-run medians (range), tokens/s:
+
+| Model | 128-token chunks | 2048-token chunks | 4096-token chunks |
+| --- | ---: | ---: | ---: |
+| LFM2 | 13273 (12918–13338) | 43428 (42189–44004) | 45667 (41361–48133) |
+| Qwen3.5-4B | 988 (930–999) | 1294 (770–1660) | 1633 (1372–1637) |
+
+Both large intervals beat 128-token chunks. Their ranges overlap each other;
+LFM2 keeps 2048 for finer prefix reuse, while Qwen uses the upstream CUDA
+runner's 4096-token setting. Equal-length rows now prefill together instead of
+one at a time. At batch eight with 128-token prompts, LFM2 improved from
+17881 (16953–20667) to 42487 (36343–46442) input tokens/s. Qwen's corresponding
+190 (143–685) versus 238 (207–252) measurement is inconclusive under contention.
+
+Two decode experiments were removed:
+
+- **Engine enqueue / `mx.async_eval`:** exact greedy parity held for both
+  runners, including a KV page crossing. Interleaved Qwen batch-eight trials
+  regressed from 61.0 (58.6–63.8) to 55.4 (51.2–57.6) tokens/s. LFM2 batch-eight
+  medians changed from 1595 to 1762 in one window, then 1298 to 1220 in another;
+  the ranges overlap. Both runners therefore retain synchronous `forward`.
+- **Parallel split-K merge:** the existing kernel already partitions history
+  into 32-token online-softmax partials. Merging with eight SIMD groups instead
+  of one passed all attention checks, but an interleaved 4K-context, batch-eight
+  LFM2 comparison was 468 (452–478) versus 479 (472–498) tokens/s. The gain is
+  inside the spread, so the simpler existing kernel remains.
+
+The long-context cProfile diagnostic attributed 4.31 of 4.98 seconds to arena
+commit, which also waits for the model's lazy GPU work; Engine stepping itself
+used 0.025 seconds. This does not isolate scatter latency. The remaining decode
+gap lies in device execution/cache synchronization, not evidence for a
+scheduler rewrite. No Rust change was needed.
+
+Capacity regressions construct lazy arrays below, at, and above 2 GiB while
+suppressing allocation. Execution regressions cross two default-sized recurrent
+chunks, restore their exact prefixes, and compare batched logits with separate
+requests. Mutating STATE addressing back to the 128-token KV interval fails
+both runners; permuting batched token rows fails both checks. Greedy-only LFM2
+coverage initially missed that permutation and was strengthened with logits.
 
 ## Run a sweep
 

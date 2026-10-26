@@ -83,6 +83,8 @@ known-first-party = ["resin", "resin_models_cuda", "resin_models_mlx", "resin_mo
 [tool.pytest.ini_options]
 pythonpath = [".", "models/cuda", "models/mlx", "models/torch"]
 testpaths = ["tests", "models/cuda/tests", "models/mlx/tests", "models/torch/tests"]
+addopts = "-m 'not checkpoint'"
+markers = ["checkpoint: real 4B checkpoint parity against the CPU Transformers oracle"]
 
 [tool.uv]
 default-groups = ["dev"]
@@ -162,3 +164,4 @@ invalid-mutable-override = "ignore"
 
 [tool.ty.environment]
 extra-paths = [".type-libs/sources"]
+

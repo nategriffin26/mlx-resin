@@ -32,6 +32,9 @@ else:
     pytest.skip("MLX requires Apple Silicon", allow_module_level=True)
 
 
+pytestmark = pytest.mark.checkpoint
+
+
 def test_pinned_4b_greedy_batch_chunking_and_prefix_match_hf_fp32():
     from huggingface_hub import snapshot_download
     from safetensors import safe_open
