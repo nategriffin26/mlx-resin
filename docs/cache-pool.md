@@ -112,3 +112,40 @@ before target verification consumes the current anchor. Its shared attention
 group therefore declares a 129-token read envelope. This preserves that oldest
 row even for short, unaligned verification blocks; default 4096-token chunks
 use the same number of physical blocks after rounding.
+
+## MLX arena
+
+`resin.backend.mlx.SlabArena` backs every group with one contiguous MLX array.
+The model supplies each group's `[layer, ...]` block shape; the group with the
+largest packed allocation determines the slab stride. Physical addresses stay
+as `(slab_id, slotnum)` until a layer view translates them into element offsets.
+No request-to-cache map exists in the MLX runner.
+
+MLX slice assignment can copy the entire backing array while an old view is
+live. The arena therefore queues writes, evaluates their values and all model
+reads, then commits one scatter into the original allocation. Fresh blocks are
+cleared when their append offset is zero, including reused padding. Slab zero
+is cleared for new sequences. `commit()` synchronizes before the Engine releases
+its leases.
+
+The public backend API is:
+
+| Name | Contract |
+| --- | --- |
+| `SlabArena(layout, group_shapes, dtype=...)` | Allocate typed, layer-addressable storage and permanently bind it with `bind_resources(ResourceBinding)`. |
+| `SlabArena.read_layer(...)` | Gather complete layer pages from validated slab/slot arrays. |
+| `SlabArena.write_layer(...)` | Queue whole-state or token-offset history writes; `commit()` makes them persistent. |
+| `SlabArena.initialize_fresh(plan)` | Clear newly entered blocks and null state before execution. |
+| `DevicePageGroup` | Device slab IDs, slots, first logical blocks, and valid column counts. |
+| `stage_page_groups(PagedCachePlan)` | Lower native CSR tables into zero-padded MLX arrays. |
+| `MlxSampler` | Greedy or stateless seeded temperature/top-k/top-p sampling, stable under batch reordering and chunking. |
+| `prompt_scores(...)` | Score requested prompt predecessors and target IDs in bounded vocabulary projections. |
+| `PromptScores` | Concatenate selected, top, and target prompt score columns across prefill rows. |
+| `format_output(...)` | Materialize native `ForwardOutput` columns, including raw-model output and prompt logprobs. |
+
+LFM2 uses 128-token history pages and recurrent checkpoint intervals by default.
+Prefill chunks cannot exceed that interval: the Engine exposes the current and
+previous state pages, not an unbounded checkpoint history. A chunk crossing an
+interval stores both the boundary checkpoint and its final partial state.
+Attention currently gathers prior pages and appends this step's keys and values
+before MLX SDPA; it does not require a custom Metal kernel.
