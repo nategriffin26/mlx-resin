@@ -91,3 +91,21 @@ def test_qwen35_rejects_incompatible_gate_semantics() -> None:
     values["text_config"]["attn_output_gate"] = False  # type: ignore[index]
     with pytest.raises(ValueError, match="unsupported Qwen3.5 options"):
         Qwen35Config.from_hugging_face(values)
+
+
+def test_qwen35_4b_accepts_tied_embeddings_without_bos() -> None:
+    values = _qwen38()["text_config"]
+    del values["bos_token_id"]
+    values["tie_word_embeddings"] = True
+    config = Qwen35Config.from_hugging_face(values)
+    assert config.bos_token_id is None
+    assert config.tie_word_embeddings
+
+
+def test_cuda_checkpoint_rejects_tied_embeddings_before_allocation() -> None:
+    from resin_models_cuda.qwen3_5.checkpoint import build_meta_model
+
+    values = _qwen38()
+    values["text_config"]["tie_word_embeddings"] = True
+    with pytest.raises(ValueError, match="CUDA runner requires untied embeddings"):
+        build_meta_model(values, include_mtp=False, include_vision=False)

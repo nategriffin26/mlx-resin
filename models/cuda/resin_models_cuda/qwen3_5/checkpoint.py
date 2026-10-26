@@ -97,6 +97,7 @@ def build_meta_model(
     raw_config: dict[str, Any], *, include_mtp: bool, include_vision: bool = False
 ) -> tuple[Qwen3_5ForConditionalGeneration, Qwen35Config]:
     config = Qwen35Config.from_hugging_face(raw_config)
+    config.require_untied_embeddings()
     if include_mtp:
         config.require_mtp()
     quantized = is_modelopt_nvfp4(raw_config)

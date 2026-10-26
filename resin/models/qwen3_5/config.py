@@ -31,7 +31,7 @@ class Qwen35Config:
     mtp_num_hidden_layers: int
     mtp_use_dedicated_embeddings: bool
     eos_token_id: int
-    bos_token_id: int
+    bos_token_id: int | None
     dtype: str = "bfloat16"
     mamba_ssm_dtype: str = "float32"
     hidden_act: str = "silu"
@@ -96,7 +96,9 @@ class Qwen35Config:
                 text.get("mtp_use_dedicated_embeddings", False)
             ),
             eos_token_id=int(text["eos_token_id"]),
-            bos_token_id=int(text["bos_token_id"]),
+            bos_token_id=(
+                int(text["bos_token_id"]) if text.get("bos_token_id") is not None else None
+            ),
             dtype=str(text.get("dtype", text.get("torch_dtype", "bfloat16"))),
             mamba_ssm_dtype=str(text.get("mamba_ssm_dtype", "float32")),
             hidden_act=str(text.get("hidden_act", "silu")),
@@ -165,7 +167,6 @@ class Qwen35Config:
             "attention_dropout": (self.attention_dropout, 0.0),
             "attn_output_gate": (self.attn_output_gate, True),
             "output_gate_type": (self.output_gate_type, "swish"),
-            "tie_word_embeddings": (self.tie_word_embeddings, False),
         }
         if unsupported := {
             name: actual
@@ -177,6 +178,10 @@ class Qwen35Config:
             raise ValueError("Qwen3.5 runner supports at most one bundled MTP layer")
         if self.mtp_use_dedicated_embeddings:
             raise ValueError("dedicated Qwen3.5 MTP embeddings are not supported")
+
+    def require_untied_embeddings(self) -> None:
+        if self.tie_word_embeddings:
+            raise ValueError("Qwen3.5 CUDA runner requires untied embeddings")
 
     def require_mtp(self) -> None:
         if self.mtp_num_hidden_layers != 1:
