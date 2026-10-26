@@ -25,6 +25,7 @@ def main():
     parser.add_argument(
         "--reference", type=Path, default=Path("local/qwen35-precision.npz")
     )
+    parser.add_argument("--prompt-lengths", nargs="+", type=int, default=[17, 129, 257])
     args = parser.parse_args()
     path = Path(
         snapshot_download(
@@ -35,7 +36,7 @@ def main():
     source = tokenizer.encode(
         "Alice lives in Paris. Bob lives in Rome. Carol lives in Berlin. " * 80
     ).ids
-    prompts = [source[:length] for length in (17, 129, 257)]
+    prompts = [source[:length] for length in args.prompt_lengths]
     logits = []
     if args.backend.startswith("hf"):
         import torch
@@ -104,7 +105,10 @@ def main():
     if args.backend == "hf-fp32":
         args.reference.parent.mkdir(parents=True, exist_ok=True)
         np.savez(
-            args.reference, logits=logits, revision=REVISION, lengths=[17, 129, 257]
+            args.reference,
+            logits=logits,
+            revision=REVISION,
+            lengths=args.prompt_lengths,
         )
         print(
             json.dumps(
@@ -119,12 +123,14 @@ def main():
         reference = np.load(args.reference)
         if str(reference["revision"]) != REVISION:
             raise ValueError("precision reference uses another checkpoint revision")
+        if not np.array_equal(reference["lengths"], args.prompt_lengths):
+            raise ValueError("precision reference uses different prompt lengths")
         difference = logits - reference["logits"]
         print(
             json.dumps(
                 {
                     "backend": args.backend,
-                    "lengths": [17, 129, 257],
+                    "lengths": args.prompt_lengths,
                     "max_absolute_error": np.max(np.abs(difference), axis=-1).tolist(),
                     "rms_error": np.sqrt(np.mean(difference**2, axis=-1)).tolist(),
                     "greedy_tokens": logits.argmax(-1).tolist(),

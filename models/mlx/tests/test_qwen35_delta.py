@@ -45,3 +45,40 @@ def test_grouped_recurrence_keeps_key_tail_and_value_heads(width):
         np.array([[[[1.625]], [[3.25]]]]) / width**0.5, (1, 2, 5, width)
     )
     np.testing.assert_allclose(np.array(final), expected_state, atol=1e-6, rtol=1e-6)
+
+
+def test_fp32_recurrence_does_not_use_relaxed_matrix_precision():
+    import torch
+    from transformers.models.qwen3_5.modeling_qwen3_5 import (
+        torch_recurrent_gated_delta_rule,
+    )
+
+    random = np.random.default_rng(41)
+    query = random.standard_normal((1, 17, 16, 128), dtype=np.float32) * 0.1
+    key = random.standard_normal(query.shape, dtype=np.float32) * 0.1
+    value = random.standard_normal((1, 17, 32, 128), dtype=np.float32)
+    log_decay = random.uniform(-0.7, 0, (1, 17, 32)).astype(np.float32)
+    beta = random.uniform(0, 1, log_decay.shape).astype(np.float32)
+    reference, reference_state = torch_recurrent_gated_delta_rule(
+        torch.from_numpy(query).repeat_interleave(2, dim=2),
+        torch.from_numpy(key).repeat_interleave(2, dim=2),
+        torch.from_numpy(value),
+        torch.from_numpy(log_decay),
+        torch.from_numpy(beta),
+        None,
+        True,
+    )
+    output, state = gated_delta_update(
+        mx.array(query * (128**-0.5)),
+        mx.array(key),
+        mx.array(value),
+        mx.array(np.exp(log_decay)),
+        mx.array(beta),
+        mx.zeros((1, 32, 128, 128)),
+    )
+    np.testing.assert_allclose(
+        np.array(output), reference.numpy(), atol=2e-6, rtol=2e-5
+    )
+    np.testing.assert_allclose(
+        np.array(state), reference_state.transpose(-1, -2).numpy(), atol=2e-6, rtol=2e-5
+    )
