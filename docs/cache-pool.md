@@ -135,12 +135,49 @@ to 3.29 MB. Typed views are ephemeral; the public byte array stays two-dimension
 Fresh blocks and null state are cleared before execution, including reused
 padding. `commit()` synchronizes before the Engine releases its leases.
 
-Qwen's Gated DeltaNet kernel reads FP32 recurrent state directly from this arena
-using 64-bit element offsets. Only the small convolution prefix is gathered.
-This removes the full recurrent-state gather and its temporary buffer without
-changing the recurrence arithmetic or checkpoint format. The kernel returns
-new state normally; writes still wait for all readers and use the single
-leased scatter. No kernel mutates an MLX input buffer.
+Qwen's Gated DeltaNet kernel reads FP32 recurrent state directly from arena
+addresses when entering a decode cohort. Only the small convolution prefix is
+gathered. Subsequent steps keep convolution and recurrence outputs batch-contiguous
+in a single write-back cohort. Neither kernel mutates its inputs.
+
+### Qwen decode write-back
+
+The cohort is keyed by the ordered physical write blocks in **both** cache groups,
+plus the expected next context lengths, never by request IDs. It is reusable only
+for one-token decode with unchanged blocks and row order. The byte arena remains
+the persistent format; the resident arrays are a write-back copy of those leased
+STATE blocks, not another allocator or a request cache.
+
+Before any incompatible plan reads the arena, the runner flushes the previous
+cohort. This covers arrival, reordering, prefill, and changed physical write blocks.
+Every 128-token KV boundary flushes before returning, including the 4096-token
+STATE publication boundary. The Engine's existing `release` callback flushes before
+completion, cancellation, retraction, and shutdown can retire blocks. Consequently
+published prefixes are already materialized, and no later plan reads stale bytes.
+Reading `arena.storage` or a STATE layer also flushes before exposing bytes.
+History kernels use a group-scoped read that does not flush unrelated STATE data.
+
+Each forward builds new arrays separately from the committed cohort. Output
+formatting and evaluation precede the KV scatter and resident publication.
+Failure during model execution or sampling discards queued writes and restores
+any fresh-block clearing; it does not replace the committed recurrent arrays.
+Device/commit failures retain the Engine's existing post-accept quarantine policy.
+
+The design choice on 2026-10-26 was **cohort-resident write-back**, rather than:
+
+- **Per-block STATE arrays:** rebinding individual block arrays avoids arena
+  scatter, but still needs batch packing when reading the next step, adds an
+  authoritative storage representation for fungible slabs, and complicates
+  reclamation and mixed-precision capacity accounting.
+- **Fused recurrence output packing/scatter:** packing convolution and recurrence
+  together would remove one copy but still write the complete state into the
+  arena every step. Writing directly into an input arena would violate MLX's
+  immutable-input and failed-forward contracts.
+
+Write-back removes both large state packing and scatter during stable decode,
+without changing allocation, checkpoint layout, precision, or the Rust Engine.
+Its cost is one live batch of recurrent state and an occasional boundary flush;
+its correctness obligations are physical cohort identity and flush ordering.
 
 Runners release MLX's unused allocator buffers after prefill, matching mlx-lm's
 prefill boundary. Qwen also releases them before prefill: decode-sized free

@@ -151,7 +151,7 @@ def paged_attention(
             queries,
             keys,
             values,
-            arena.storage,
+            arena.read_storage(group),
             metadata,
             geometry,
             mx.array([scale]),

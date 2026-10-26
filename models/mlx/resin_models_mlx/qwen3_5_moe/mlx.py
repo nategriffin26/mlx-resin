@@ -10,7 +10,7 @@ from resin import RunnerConfig
 from resin.backend.loading import read_config, resolve_model
 from resin.backend.mlx import MlxSampler, SlabArena
 from resin.models.qwen3_5_moe import Qwen35MoeConfig
-from resin_models_mlx.qwen3_5.cache import CacheGeometry
+from resin_models_mlx.qwen3_5.cache import CacheGeometry, DecodeState
 from resin_models_mlx.qwen3_5.mlx import Qwen35MlxRunner, _download_model
 from resin_models_mlx.qwen3_5.model import RMSNorm
 from resin_models_mlx.qwen3_5_moe.model import ExpertLinear, Qwen35MoeForCausalLM
@@ -159,6 +159,7 @@ class Qwen35MoeMlxRunner(Qwen35MlxRunner):
             layout, self.geometry.shapes, group_dtypes=(dtype, mx.float32)
         )
         self._sampler = MlxSampler()
+        self._decode_state = DecodeState(self.arena)
 
     def steer(self, token_ids, neurons, calibration, directions=()):
         """Steer shared-expert neurons or layer residual directions, not routed experts."""

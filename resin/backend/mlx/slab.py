@@ -149,10 +149,33 @@ class SlabArena:
             for shape, size in zip(self.group_shapes, self.item_sizes, strict=True)
         )
         mx.eval(self._write_ranges)
-        self.storage = mx.zeros((layout.parent_capacity + 1, self.slab_bytes), mx.uint8)
-        mx.eval(self.storage)
+        self._storage = mx.zeros(
+            (layout.parent_capacity + 1, self.slab_bytes), mx.uint8
+        )
+        mx.eval(self._storage)
         self.binding = CachePoolBinding(layout, resource="MLX slab arena")
         self._writes: list[tuple[mx.array, mx.array]] = []
+        self._cleared = None
+        self.write_back = None
+
+    @property
+    def storage(self):
+        """Materialize pending write-back state before exposing all arena bytes."""
+        if self.write_back is not None:
+            self.write_back.flush()
+        return self._storage
+
+    @storage.setter
+    def storage(self, value):
+        if self.write_back is not None:
+            self.write_back.flush()
+        self._storage = value
+
+    def read_storage(self, group):
+        """Read one group's bytes without flushing unrelated resident state."""
+        if self.write_back is not None and group == self.write_back.group:
+            self.write_back.flush()
+        return self._storage
 
     def bind_resources(self, binding) -> None:
         self.binding.bind_resources(binding)
@@ -182,7 +205,7 @@ class SlabArena:
         width = math.prod(shape)
         return _read_pages(
             inputs=[
-                self.storage,
+                self.read_storage(group),
                 mx.concatenate(
                     (slabs.reshape(-1), slots.reshape(-1), mx.zeros(32, mx.uint32))
                 ),
@@ -281,29 +304,51 @@ class SlabArena:
             )
         if indices:
             units = self.slab_bytes // self.write_unit_bytes
-            shape = self.storage.shape
-            self.storage = self.storage.view(self.write_dtype).reshape(
+            shape = self._storage.shape
+            self._storage = self._storage.view(self.write_dtype).reshape(
                 shape[0], units, self.write_unit_words
             )
             addresses = mx.concatenate(indices)
-            self.storage[addresses // units, addresses % units] = 0
-            self.storage = self.storage.reshape(shape[0], -1).view(mx.uint8)
-            mx.eval(self.storage)
+            self._cleared = (
+                addresses,
+                self._storage[addresses // units, addresses % units],
+            )
+            mx.eval(self._cleared)
+            self._storage[addresses // units, addresses % units] = 0
+            self._storage = self._storage.reshape(shape[0], -1).view(mx.uint8)
+            mx.eval(self._storage)
 
     def commit(self, *outputs) -> None:
         """Evaluate outputs and reads together, then synchronously commit leased writes."""
         if not self._writes:
             mx.eval(*outputs)
+            self._cleared = None
             return
         indices = mx.concatenate([index for index, _ in self._writes])
         values = mx.concatenate([value for _, value in self._writes])
         mx.eval(indices, values, *outputs)
         self._writes.clear()
         units = self.slab_bytes // self.write_unit_bytes
-        shape = self.storage.shape
-        self.storage = self.storage.view(self.write_dtype).reshape(
+        shape = self._storage.shape
+        self._storage = self._storage.view(self.write_dtype).reshape(
             shape[0], units, self.write_unit_words
         )
-        self.storage[indices // units, indices % units] = values
-        self.storage = self.storage.reshape(shape[0], -1).view(mx.uint8)
-        mx.eval(self.storage)
+        self._storage[indices // units, indices % units] = values
+        self._storage = self._storage.reshape(shape[0], -1).view(mx.uint8)
+        mx.eval(self._storage)
+        self._cleared = None
+
+    def abort(self):
+        """Discard proposed writes and restore fresh-block clearing after rejection."""
+        self._writes.clear()
+        if self._cleared is not None:
+            addresses, values = self._cleared
+            units = self.slab_bytes // self.write_unit_bytes
+            shape = self._storage.shape
+            self._storage = self._storage.view(self.write_dtype).reshape(
+                shape[0], units, self.write_unit_words
+            )
+            self._storage[addresses // units, addresses % units] = values
+            self._storage = self._storage.reshape(shape[0], -1).view(mx.uint8)
+            mx.eval(self._storage)
+            self._cleared = None

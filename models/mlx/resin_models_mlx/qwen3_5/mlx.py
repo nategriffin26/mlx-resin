@@ -22,7 +22,7 @@ from resin.backend.plans import PagedCachePlan
 from resin.backend.topology import ParallelismCapabilities
 from resin.models.qwen3_5.config import Qwen35Config
 from resin.protocols import ManagedRunner
-from resin_models_mlx.qwen3_5.cache import CacheGeometry, DeviceCache
+from resin_models_mlx.qwen3_5.cache import CacheGeometry, DecodeState, DeviceCache
 from resin_models_mlx.qwen3_5.model import Qwen35ForCausalLM
 from resin_models_mlx.qwen3_5.steering import Qwen35Steering, SteeringCalibration
 
@@ -115,9 +115,14 @@ class Qwen35MlxRunner(ManagedRunner):
             layout, self.geometry.shapes, group_dtypes=(dtype, mx.float32)
         )
         self._sampler = MlxSampler()
+        self._decode_state = DecodeState(self.arena)
 
     def bind_resources(self, binding):
         self.arena.bind_resources(binding)
+
+    def release(self, sequence_ids):
+        # The Engine calls this before completion, cancellation, retraction, and close.
+        self._decode_state.flush()
 
     def calibrate(self, token_ids):
         """Median residual norms after each layer, excluding the first prompt token."""
@@ -264,6 +269,7 @@ class Qwen35MlxRunner(ManagedRunner):
                     "Qwen3.5 text runner accepts only its own calibrated steering media"
                 )
         groups = stage_page_groups(cache_plan)
+        resident_key = self._decode_state.prepare(cache_plan)
         try:
             has_prefill = np.any(cache_plan.batch.query_lengths > 1)
             if has_prefill:
@@ -282,6 +288,9 @@ class Qwen35MlxRunner(ManagedRunner):
                 cache = DeviceCache.from_plan(
                     self.arena, self.geometry, cache_plan, groups, rows
                 )
+                if resident_key is not None:
+                    cache.resident = self._decode_state.layers
+                    cache.updated = []
                 if len(rows) > 1:
                     tokens, positions = (
                         mx.array(plan.token_ids.reshape(len(rows), -1)),
@@ -308,14 +317,32 @@ class Qwen35MlxRunner(ManagedRunner):
                     )
             logits = mx.concatenate(logits_rows)
             sampled = self._sampler(logits, plan)
-            self.arena.commit(logits, sampled)
+            # Formatting can fail too: no new state is visible until it succeeds.
             output = format_output(
                 logits, sampled, plan, prompt_logprobs=PromptScores.concat(prompt_rows)
             )
+            boundary = resident_key is not None and np.any(
+                (cache_plan.context_lengths + 1) % self.geometry.block_tokens == 0
+            )
+            if boundary:
+                self._decode_state.queue(
+                    cache.updated, cache.destination_slabs, cache.destination_slots
+                )
+            self.arena.commit(
+                logits, sampled, cache.updated if resident_key is not None else []
+            )
+            if resident_key is not None:
+                if boundary:
+                    self._decode_state.key = self._decode_state.layers = None
+                else:
+                    self._decode_state.publish(
+                        resident_key, cache_plan.context_lengths, cache
+                    )
             if has_prefill:
                 # Prefill scratch can exceed live cache size and evict decode buffers.
                 mx.clear_cache()
             return output
         except Exception as error:
+            self.arena.abort()
             error._resin_post_accept = True
             raise

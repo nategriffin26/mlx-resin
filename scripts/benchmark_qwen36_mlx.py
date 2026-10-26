@@ -1,6 +1,7 @@
 """Interleaved Qwen3.6 affine 4-bit benchmarks and allocated-memory measurements."""
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -42,6 +43,12 @@ def main():
     parser.add_argument("--decode-tokens", type=int, default=128)
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--matrix", action="store_true")
+    parser.add_argument(
+        "--decode-batches",
+        type=int,
+        nargs="+",
+        help="Measure only these decode batches in matrix mode",
+    )
     parser.add_argument("--capacity-only", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
@@ -54,7 +61,13 @@ def main():
             parser.error("--matrix requires --output for the raw JSONL measurements")
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with args.output.open("w") as stream:
-            for batch, length in ((1, 128), (8, 128), (32, 128), (1, 2048), (1, 4096)):
+            cases = (
+                [(batch, 128) for batch in args.decode_batches]
+                if args.decode_batches
+                else [(1, 128), (8, 128), (32, 128), (1, 2048), (1, 4096)]
+            )
+            for batch, length in cases:
+                expected_hashes = None
                 for trial in range(args.runs):
                     order = (
                         ("resin", "mlx-lm") if trial % 2 == 0 else ("mlx-lm", "resin")
@@ -83,6 +96,11 @@ def main():
                         )
                         for line in result.stdout.splitlines():
                             row = json.loads(line)
+                            if expected_hashes is None:
+                                expected_hashes = row["token_hashes"]
+                            assert row["token_hashes"] == expected_hashes, (
+                                f"greedy mismatch: {backend} batch={batch} trial={trial + 1}"
+                            )
                             row["trial"] = trial + 1
                             row["command"] = command
                             stream.write(json.dumps(row) + "\n")
@@ -169,6 +187,10 @@ def main():
                     "active_bytes": mx.get_active_memory(),
                     "generated_tokens": sum(map(len, tokens)),
                     "first_tokens": tokens[0][:8],
+                    "token_hashes": [
+                        hashlib.sha256(json.dumps(row).encode()).hexdigest()
+                        for row in tokens
+                    ],
                     "paging_before": paging_before,
                     "paging_after": paging_after,
                     "paging_delta": paging_delta,

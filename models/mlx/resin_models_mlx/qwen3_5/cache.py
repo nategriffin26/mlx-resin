@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import math
+from weakref import proxy
 
 import mlx.core as mx
 import numpy as np
 
-from resin import CacheGroupFamily, CacheGroupLayout, CacheLayout
+from resin import BatchPhase, CacheGroupFamily, CacheGroupLayout, CacheLayout
 
 
 class CacheGeometry:
@@ -52,6 +53,65 @@ class CacheGeometry:
         )
 
 
+class DecodeState:
+    """One write-back cohort, identified only by Engine-owned physical blocks."""
+
+    group = 1
+
+    def __init__(self, arena):
+        # The arena owns the read barrier; do not retain a cycle of GPU allocations.
+        self.arena = proxy(arena)
+        arena.write_back = self
+        self.key = None
+        self.layers = None
+
+    def prepare(self, plan):
+        decode = plan.phase == BatchPhase.DECODE and np.all(
+            plan.batch.query_lengths == 1
+        )
+        key = (
+            tuple(
+                column.tobytes()
+                for group in plan.groups
+                for column in (group.append_slab_ids, group.append_slotnums)
+            )
+            if decode
+            else None
+        )
+        if key != self.key or (
+            self.key is not None
+            and not np.array_equal(plan.context_lengths, self.contexts)
+        ):
+            self.flush()
+        return key
+
+    def publish(self, key, contexts, cache):
+        self.key = key
+        self.contexts = contexts + 1
+        self.slabs = cache.destination_slabs
+        self.slots = cache.destination_slots
+        self.layers = cache.updated
+
+    def queue(self, layers, slabs, slots):
+        for layer, (convolution, recurrent) in enumerate(layers):
+            batch = convolution.shape[0]
+            packed = mx.concatenate(
+                (
+                    convolution.reshape(batch, -1).astype(mx.float32),
+                    recurrent.reshape(batch, -1),
+                ),
+                axis=-1,
+            )
+            self.arena.write_layer(1, layer, slabs, slots, packed)
+
+    def flush(self):
+        """Persist before a different plan, publication, or physical-block retirement."""
+        if self.layers is not None:
+            self.queue(self.layers, self.slabs, self.slots)
+            self.arena.commit()
+            self.key = self.layers = None
+
+
 class DeviceCache:
     """Ephemeral views; the Engine aligns reusable checkpoints to block boundaries."""
 
@@ -71,6 +131,8 @@ class DeviceCache:
             self.destination_slots,
         ) = tensors
         self.history_length = history_length
+        self.resident = None
+        self.updated = None
 
     @classmethod
     def from_plan(cls, arena, geometry, plan, groups, rows):
@@ -139,6 +201,9 @@ class DeviceCache:
         )
 
     def state(self, layer):
+        if self.resident is not None:
+            convolution, recurrent = self.resident[layer]
+            return convolution, recurrent, None
         convolution = self.arena.read_layer(
             1,
             layer,
@@ -158,6 +223,9 @@ class DeviceCache:
         )
 
     def store(self, layer, convolution, recurrent):
+        if self.updated is not None:
+            self.updated.append((convolution, recurrent))
+            return
         batch = convolution.shape[0]
         packed = mx.concatenate(
             (
