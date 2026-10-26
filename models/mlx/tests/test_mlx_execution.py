@@ -92,3 +92,22 @@ def test_equal_length_prefill_batches_rows_without_mixing_tokens(
     assert actual == expected
     assert shapes[0] == (2, 257)
     np.testing.assert_allclose(np.stack(sampled), expected_logits, atol=3e-4, rtol=3e-4)
+
+
+@pytest.mark.parametrize("model", ["lfm2", "qwen35"])
+def test_allocator_scratch_is_released_after_prefill_not_each_decode(
+    model, qwen35_checkpoint, monkeypatch
+):
+    runner = make_runner(model, qwen35_checkpoint)
+    releases = []
+    clear_cache = mx.clear_cache
+
+    def release():
+        clear_cache()
+        releases.append(True)
+
+    monkeypatch.setattr(mx, "clear_cache", release)
+    with Engine(runner) as engine:
+        generate(engine, [[1, 2, 3, 4]], 4)
+    # The resource API call is the boundary: retain decode allocations for reuse.
+    assert releases == [True]

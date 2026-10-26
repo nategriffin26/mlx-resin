@@ -76,3 +76,40 @@ def test_byte_capacity_crosses_signed_dimension_limit_without_flattening(
     )
     assert arena.storage.shape == (capacity + 1, 1024)
     assert arena.storage.nbytes == (capacity + 1) * 1024
+
+
+def test_state_writes_do_not_expand_one_address_per_word():
+    arena = SlabArena(
+        CacheLayout(
+            parent_capacity=3,
+            groups=(
+                CacheGroupLayout(2),
+                CacheGroupLayout(2, blocks_per_slab=2, family=CacheGroupFamily.STATE),
+            ),
+        ),
+        ((2, 2, 128), (2, 128)),
+        group_dtypes=(mx.bfloat16, mx.float32),
+    )
+    slabs = mx.array([1, 2], mx.uint32)
+    slots = mx.array([1, 0], mx.uint32)
+    state = mx.arange(256, dtype=mx.float32).reshape(2, 128) * 0.125
+    history = mx.full((1, 128), 12.5, mx.bfloat16)
+    arena.write_layer(1, 1, slabs, slots, state)
+    arena.write_layer(
+        0,
+        0,
+        mx.array([3], mx.uint32),
+        mx.array([0], mx.uint32),
+        history,
+        offsets=mx.array([1], mx.uint32),
+    )
+    # Two 256-byte blocks per state row and one per history token.
+    assert sum(indices.size for indices, _ in arena._writes) == 5
+    arena.commit()
+    np.testing.assert_array_equal(
+        np.array(arena.read_layer(1, 1, slabs, slots)), np.array(state)
+    )
+    assert bool(mx.all(arena.read_layer(1, 0, slabs, slots) == 0))
+    page = arena.read_layer(0, 0, mx.array([3], mx.uint32), mx.array([0], mx.uint32))
+    assert page[:, 1].tolist() == history.tolist()
+    assert bool(mx.all(page[:, 0] == 0))

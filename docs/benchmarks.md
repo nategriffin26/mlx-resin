@@ -132,6 +132,11 @@ TF32 GEMM (`MLX_ENABLE_TF32=0`) before importing MLX. With TF32 enabled, a
 layer-zero projection differed from Torch by 0.00155 despite identical weights;
 disabling it reduced that difference to 0.0000012.
 
+The slice-2b release gate passed **163 tests in 35.51 s** by default, with one
+checkpoint test deselected. The explicit 4B checkpoint run passed in **320.79 s**;
+`uv run ruff check .` was clean. No checkpoint assertion or numerical tolerance
+was relaxed.
+
 The Torch reference's RMSNorm previously modified float32 residual inputs in
 place because `.float()` returned the original tensor. Its out-of-place fix has
 a regression covering unchanged float32 residuals and identical bfloat16
@@ -166,12 +171,14 @@ measured trial in each fresh process. Raw JSONL trials and `summary.json` are
 retained in the output directory. The child commands use the arguments above;
 Qwen uses `scripts/benchmark_qwen35_mlx.py`, the pinned
 `Qwen/Qwen3.5-4B@851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a` BF16 weights, and
-the same prompt/decode lengths. Its arena capacity is estimated for the entire
-cohort rather than silently timing only the requests that fit 32 slabs.
+the same prompt/decode lengths. Its arena capacity and Engine running-request
+limit cover the entire cohort. The drivers verify every request's identity at
+prefill completion and every row's greedy tokens, not only row zero.
 
 ### Optimization decisions
 
-These development measurements overlapped unrelated Xcode builds and simulator
+These development measurements preceded compact write indices and prefill
+scratch release. They also overlapped unrelated Xcode builds and simulator
 work. Ranges are retained; small differences are not treated as improvements.
 
 Whole-prompt 4096-token prefill, batch one, three-run medians (range), tokens/s:
@@ -203,9 +210,8 @@ Two decode experiments were removed:
 
 The long-context cProfile diagnostic attributed 4.31 of 4.98 seconds to arena
 commit, which also waits for the model's lazy GPU work; Engine stepping itself
-used 0.025 seconds. This does not isolate scatter latency. The remaining decode
-gap lies in device execution/cache synchronization, not evidence for a
-scheduler rewrite. No Rust change was needed.
+used 0.025 seconds. This does not isolate scatter latency and predates the
+compact-write change below. No Rust change was needed.
 
 Capacity regressions construct lazy arrays below, at, and above 2 GiB while
 suppressing allocation. Execution regressions cross two default-sized recurrent
@@ -213,6 +219,19 @@ chunks, restore their exact prefixes, and compare batched logits with separate
 requests. Mutating STATE addressing back to the 128-token KV interval fails
 both runners; permuting batched token rows fails both checks. Greedy-only LFM2
 coverage initially missed that permutation and was strengthened with logits.
+
+The subsequent high-batch matrix exposed two allocation costs. Per-word write
+indices expanded batch-32 Qwen recurrent updates to 3.37 GB of uint64 addresses;
+4096-byte contiguous write units reduce that to 3.29 MB, retaining one scatter.
+At batch 64, a separate runtime probe observed 16.17 GB of unused allocator
+buffers retained after prefill alongside 12.63 GB of live arrays. Releasing
+those buffers at the prefill boundary let the cohort complete; decode retains
+its reusable allocations.
+
+A real 6.80 GB arena preserved distinct FP32 states and BF16 history at both
+the first and last slabs. The last slab began at byte 6,744,440,832, beyond
+the 32-bit byte-address boundary. The default boundary tests remain lazy and
+do not allocate this large arena.
 
 ## Run a sweep
 

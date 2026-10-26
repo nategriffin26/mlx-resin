@@ -75,6 +75,9 @@ def resin_trial(engine, prompts, count):
     mx.synchronize()
     prefill = time.perf_counter() - start
     assert len(first) == len(prompts)
+    assert {event.request_id for event in first} == {
+        request.request_id for request in requests
+    }, "the complete cohort must prefill before any request decodes"
     start = time.perf_counter()
     completed = 0
     while completed < count:
@@ -86,6 +89,7 @@ def resin_trial(engine, prompts, count):
     decode = time.perf_counter() - start
     tokens = [request.take_result() for request in requests]
     assert all(len(row) == count + 1 for row in tokens)
+    assert all(row == tokens[0] for row in tokens), "identical greedy rows diverged"
     assert not engine.has_work()
     return prefill, decode, tokens
 
@@ -120,6 +124,7 @@ def mlx_lm_trial(model, prompts, count):
     generator.close()
     tokens = [tokens[uid] for uid in uids]
     assert all(len(row) == count + 1 for row in tokens)
+    assert all(row == tokens[0] for row in tokens), "identical greedy rows diverged"
     return prefill, decode, tokens
 
 
@@ -170,7 +175,9 @@ def main():
             cache_slab_capacity=max(32, capacity + 4),
             prefill_chunk_size=args.prefill_chunk_size,
         )
-        engine = Engine(runner, prefix_cache=False)
+        engine = Engine(
+            runner, prefix_cache=False, max_running_requests=args.batch_size
+        )
 
         def execute():
             return resin_trial(engine, prompts, args.decode_tokens)

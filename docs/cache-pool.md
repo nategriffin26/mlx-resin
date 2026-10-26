@@ -127,10 +127,18 @@ they do not wrap at the 8 GiB BF16 boundary. No request-to-cache map exists.
 
 MLX slice assignment can copy the entire allocation while an old view is live.
 The arena queues writes, evaluates their values and model outputs together,
-then commits one two-axis scatter in the widest commonly aligned integer word
-type, without flattening the arena. Typed views are ephemeral. Fresh blocks and
-null state are cleared before execution, including reused padding. `commit()`
-synchronizes before the Engine releases its leases.
+then commits one scatter of contiguous aligned blocks. The common write unit
+is the greatest common divisor of a history token's bytes and a complete
+recurrent layer state's bytes. Qwen uses 4096-byte units rather than one
+address per four-byte word, reducing batch-32 state-write indices from 3.37 GB
+to 3.29 MB. Typed views are ephemeral; the public byte array stays two-dimensional.
+Fresh blocks and null state are cleared before execution, including reused
+padding. `commit()` synchronizes before the Engine releases its leases.
+
+Runners release MLX's unused allocator buffers after prefill, matching mlx-lm's
+prefill boundary. Large prefill scratch buffers otherwise remain cached beside
+the live model and recurrent state during decode. Decode allocations remain
+cached for reuse.
 
 The public backend API is:
 

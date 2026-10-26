@@ -305,9 +305,13 @@ class Qwen35MlxRunner(ManagedRunner):
             logits = mx.concatenate(logits_rows)
             sampled = self._sampler(logits, plan)
             self.arena.commit(logits, sampled)
-            return format_output(
+            output = format_output(
                 logits, sampled, plan, prompt_logprobs=PromptScores.concat(prompt_rows)
             )
+            if np.any(cache_plan.batch.query_lengths > 1):
+                # Prefill scratch can exceed live cache size and evict decode buffers.
+                mx.clear_cache()
+            return output
         except Exception as error:
             error._resin_post_accept = True
             raise

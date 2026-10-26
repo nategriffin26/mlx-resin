@@ -9,7 +9,7 @@ from functools import partial
 import mlx.core as mx
 import numpy as np
 
-from resin import CacheLayout
+from resin import CacheGroupFamily, CacheLayout
 from resin.backend.plans import PagedCachePlan
 from resin.backend.resources import CachePoolBinding
 
@@ -123,28 +123,33 @@ class SlabArena:
             for size, group in zip(self.block_bytes, layout.groups, strict=True)
         )
         self.slab_bytes = (largest + alignment - 1) // alignment * alignment
-        # Scatter whole words when every possible token/state write is aligned.
-        self.write_size = math.gcd(
-            4,
+        # Scatter contiguous blocks, not an address for every recurrent-state word.
+        self.write_unit_bytes = math.gcd(
             *(
-                math.prod(shape[2:]) * size
-                for shape, size in zip(self.group_shapes, self.item_sizes, strict=True)
-            ),
+                math.prod(
+                    shape[1:] if group.family == CacheGroupFamily.STATE else shape[2:]
+                )
+                * size
+                for shape, size, group in zip(
+                    self.group_shapes, self.item_sizes, layout.groups, strict=True
+                )
+            )
         )
+        self.write_size = math.gcd(4, self.write_unit_bytes)
+        self.write_unit_words = self.write_unit_bytes // self.write_size
         self.write_dtype = {1: mx.uint8, 2: mx.uint16, 4: mx.uint32}[self.write_size]
         self._write_ranges = tuple(
             tuple(
                 mx.arange(
-                    math.prod(shape[start:]) * size // self.write_size, dtype=mx.uint64
+                    math.prod(shape[start:]) * size // self.write_unit_bytes,
+                    dtype=mx.uint64,
                 )
                 for start in (1, 2)
             )
             for shape, size in zip(self.group_shapes, self.item_sizes, strict=True)
         )
         mx.eval(self._write_ranges)
-        self.storage = mx.zeros(
-            (layout.parent_capacity + 1, self.slab_bytes), mx.uint8
-        )
+        self.storage = mx.zeros((layout.parent_capacity + 1, self.slab_bytes), mx.uint8)
         mx.eval(self.storage)
         self.binding = CachePoolBinding(layout, resource="MLX slab arena")
         self._writes: list[tuple[mx.array, mx.array]] = []
@@ -201,6 +206,8 @@ class SlabArena:
             raise ValueError("cache layer lies outside its cache group")
         token_write = offsets is not None
         if token_write:
+            if self.layout.groups[group].family == CacheGroupFamily.STATE:
+                raise ValueError("token offsets require a history cache group")
             shape = shape[1:]
         else:
             offsets = mx.zeros_like(slabs)
@@ -215,17 +222,21 @@ class SlabArena:
             slots[..., None],
             offsets[..., None],
             self._write_ranges[group][int(token_write)],
-            self.slab_bytes // self.write_size,
-            self.block_bytes[group] // self.write_size,
-            layer * math.prod(self.group_shapes[group][1:]) * size // self.write_size,
-            math.prod(shape) * size // self.write_size,
+            self.slab_bytes // self.write_unit_bytes,
+            self.block_bytes[group] // self.write_unit_bytes,
+            layer
+            * math.prod(self.group_shapes[group][1:])
+            * size
+            // self.write_unit_bytes,
+            math.prod(shape) * size // self.write_unit_bytes,
         )
         self._writes.append(
             (
                 indices.reshape(-1),
                 values.astype(self.group_dtypes[group])
                 .reshape(-1)
-                .view(self.write_dtype),
+                .view(self.write_dtype)
+                .reshape(-1, self.write_unit_words),
             )
         )
 
@@ -234,7 +245,7 @@ class SlabArena:
         indices = []
         if np.any(plan.context_lengths == 0):
             indices.append(
-                mx.arange(self.slab_bytes // self.write_size, dtype=mx.uint64)
+                mx.arange(self.slab_bytes // self.write_unit_bytes, dtype=mx.uint64)
             )
         for index, group in enumerate(plan.groups):
             fresh = group.append_block_offsets == 0
@@ -256,19 +267,22 @@ class SlabArena:
             )
             indices.append(
                 (
-                    mx.array(base // self.write_size)[:, None]
+                    mx.array(base // self.write_unit_bytes)[:, None]
                     + mx.arange(
-                        self.block_bytes[index] // self.write_size,
+                        self.block_bytes[index] // self.write_unit_bytes,
                         dtype=mx.uint64,
                     )
                 ).reshape(-1)
             )
         if indices:
-            self.storage = self.storage.view(self.write_dtype)
-            words = self.slab_bytes // self.write_size
+            units = self.slab_bytes // self.write_unit_bytes
+            shape = self.storage.shape
+            self.storage = self.storage.view(self.write_dtype).reshape(
+                shape[0], units, self.write_unit_words
+            )
             addresses = mx.concatenate(indices)
-            self.storage[addresses // words, addresses % words] = 0
-            self.storage = self.storage.view(mx.uint8)
+            self.storage[addresses // units, addresses % units] = 0
+            self.storage = self.storage.reshape(shape[0], -1).view(mx.uint8)
             mx.eval(self.storage)
 
     def commit(self, *outputs) -> None:
@@ -280,8 +294,11 @@ class SlabArena:
         values = mx.concatenate([value for _, value in self._writes])
         mx.eval(indices, values, *outputs)
         self._writes.clear()
-        self.storage = self.storage.view(self.write_dtype)
-        words = self.slab_bytes // self.write_size
-        self.storage[indices // words, indices % words] = values
-        self.storage = self.storage.view(mx.uint8)
+        units = self.slab_bytes // self.write_unit_bytes
+        shape = self.storage.shape
+        self.storage = self.storage.view(self.write_dtype).reshape(
+            shape[0], units, self.write_unit_words
+        )
+        self.storage[indices // units, indices % units] = values
+        self.storage = self.storage.reshape(shape[0], -1).view(mx.uint8)
         mx.eval(self.storage)
