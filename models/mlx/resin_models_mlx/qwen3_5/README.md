@@ -36,7 +36,7 @@ with Engine(runner, prefix_cache=True) as engine:
 ```
 
 See [the steering contract](../../../../docs/steering.md) for dose units and
-prefix isolation. Prefill chunks are at most one 128-token checkpoint interval.
+prefix isolation. Prefill chunks are at most one 4096-token checkpoint interval.
 With prefix caching enabled, the Engine cuts chunks at reusable boundaries; each
 forward stores its final recurrent state. No unused mid-chunk checkpoint is
 computed. Decode reads history pages plus current K/V through the Metal
@@ -93,6 +93,8 @@ BF16 execution against it on identical 17-, 129-, and 257-token prompts.
 
 ## M5 Pro measurements
 
+Measured at `aa1a6eb`; the current matrix, after later cache changes, is in
+[docs/benchmarks.md](../../../../docs/benchmarks.md#final-matrix-and-stopping-point).
 MLX 0.32.4, mlx-lm 0.32.2, unquantized BF16, 48 GB unified memory. Values are
 three-run medians with observed ranges. Decode measures 64 tokens after the first
 output; the b1/b8 decode prompts have 128 tokens. No prefix hits or stop tokens.
@@ -112,11 +114,8 @@ MLX_ENABLE_TF32=0 uv run python scripts/benchmark_qwen35_mlx.py --backend resin 
 MLX_ENABLE_TF32=0 uv run python scripts/benchmark_qwen35_mlx.py --backend mlx-lm --batch-size 1 --prompt-tokens 2048 --decode-tokens 64
 ```
 
-The exact recurrence costs about 6% end-to-end prefill latency versus the native
-primitive in the paired 2k/16-decode-token diagnostic (1.886 s versus 1.782 s).
-The isolated 2k GDN call costs 7.68 ms versus 2.04 ms, but the Engine uses 128-token
-chunks, not a single 2k recurrent call.
-
-The current byte arena has MLX's signed-32-bit single-dimension limit. Qwen4B's
-default 32 slabs fit; requesting 64 slabs fails allocation at 3.42 GB. Larger
-arenas need a backend storage-layout change, not a runner-private allocator.
+The exact recurrence cost about 6% end-to-end prefill latency versus the native
+primitive in the paired 2k/16-decode-token diagnostic (1.886 s versus 1.782 s),
+measured with 128-token prefill chunks. The isolated 2k GDN call costs 7.68 ms
+versus 2.04 ms. Prefill now uses 4096-token chunks, so a 2k prompt makes one such
+call per linear layer; that end-to-end cost has not been remeasured.
